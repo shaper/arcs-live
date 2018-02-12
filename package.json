@@ -1,0 +1,10 @@
+{
+  "name": "arcs-live",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+  },
+  "dependencies": {
+    "gulp": "^3.9.1"
+  }
+}
