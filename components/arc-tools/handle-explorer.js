@@ -8,7 +8,7 @@ Code distributed by Google as part of the polymer project is also
 subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
 */
 
-import "../data-explorer.js";
+import '../data-explorer.js';
 import Xen from '../xen/xen.js';
 
 const template = Xen.Template.createTemplate(
@@ -81,9 +81,13 @@ class HandleExplorer extends Xen.Base {
           name: handle.name,
           tags: tags ? [...tags].join(', ') : '',
           id: handle.id,
+          storage: handle.storageKey,
           //values: JSON.stringify(handle.toList ? await handle.toList() : `await handle.get()`, null, '  ')
           values
         };
+        if (handle.description) {
+          data.description = handle.description;
+        }
         let moniker = handle.id.split(':').pop();
         result.push({tags: data.tags, data, name: handle.name || data.tags || moniker});
       }
@@ -103,4 +107,4 @@ class HandleExplorer extends Xen.Base {
     };
   }
 }
-customElements.define("handle-explorer", HandleExplorer);
+customElements.define('handle-explorer', HandleExplorer);

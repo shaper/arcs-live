@@ -8,10 +8,10 @@ Code distributed by Google as part of the polymer project is also
 subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
 */
 
-import ArcsUtils from "../lib/arcs-utils.js";
+import ArcsUtils from '../lib/arcs-utils.js';
 import Xen from '../../components/xen/xen.js';
-import "../../components/dancing-dots.js";
-import "../../components/x-toast.js";
+import '../../components/dancing-dots.js';
+import '../../components/x-toast.js';
 
 const template = Xen.Template.createTemplate(
   `<style>
@@ -50,7 +50,7 @@ const template = Xen.Template.createTemplate(
       outline: none;
     }
   </style>
-  <x-toast app-footer open="{{toastOpen}}" suggestion-container>
+  <x-toast app-footer open="{{toastOpen}}" on-toggle="_onToggle" suggestion-container>
     <dancing-dots slot="toast-header" disabled="{{dotsDisabled}}" active="{{dotsActive}}"></dancing-dots>
     <div search>
       <i class="material-icons" on-click="_onSearchClick" id="search-button">search</i>
@@ -92,6 +92,11 @@ class ArcFooter extends Xen.Base {
       searchText: state.search || '',
       toastOpen: state.open // == undefined ? true : state.open
     };
+  }
+  _onToggle() {
+    this._setState({open: !this._state.open});
+    // TODO(sjmiles): breaks the idiom
+    this.host.querySelector('input').focus();
   }
   _onPlanSelected(e, suggestion) {
     this._fire('suggest', suggestion);

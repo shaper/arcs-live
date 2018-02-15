@@ -12,7 +12,12 @@ import WatchGroup from './watch-group.js';
 import Xen from '../../components/xen/xen.js';
 const db = window.db;
 
-class RemoteVisitedArcs extends Xen.Base {
+/**
+ * Takes a `user` and builds a live (watched) list of Arcs visited by that user.
+ * Delivers visited arc list via `arcs` event.
+ * If an `arcs` list is provided, that list is written to the database.
+*/
+class PersistentVisitedArcs extends Xen.Base {
   static get observedAttributes() { return ['user', 'arcs']; }
   _getInitialState() {
     return {
@@ -30,13 +35,13 @@ class RemoteVisitedArcs extends Xen.Base {
   }
   _watchVisitedArcs(user) {
     if (user && user.arcs) {
-      RemoteVisitedArcs.log(`watching visited arcs`);
+      PersistentVisitedArcs.log(`watching visited arcs`);
       // build an object for mapping arc keys to arc metadata
       let data = Object.create(null);
       // user.arcs contains arc keys
       return Object.keys(user.arcs).map(key => {
         return {
-          node: db.child(`arcs/${key}/`),
+          path: `arcs/${key}/`,
           handler: snap => this._watchHandler(data, user, snap)
         };
       });
@@ -55,7 +60,7 @@ class RemoteVisitedArcs extends Xen.Base {
       }
       // stuff this record into our list of arc metadata
       data[snap.key] = record;
-      RemoteVisitedArcs.log('READING (_watchHandler)', data);
+      PersistentVisitedArcs.log('READING (_watchHandler)', data);
       // produce our deliverable
       this._fire('arcs', data);
     }
@@ -66,7 +71,7 @@ class RemoteVisitedArcs extends Xen.Base {
     // no-op if data matches
     // right now the only change we support is removal, so length check is enough
     if (user.arcs && keys.length !== Object.keys(user.arcs).length) {
-      //RemoteVisitedArcs.log('updateVisitedArcs', keys, user.arcs);
+      //PersistentVisitedArcs.log('updateVisitedArcs', keys, user.arcs);
       let visited = Object.create(null);
       keys.forEach(key => {
         let arc = user.arcs[key];
@@ -74,12 +79,12 @@ class RemoteVisitedArcs extends Xen.Base {
           visited[key] = arc;
         }
       });
-      RemoteVisitedArcs.log('WRITING (updateVisitedArcs)', visited);
+      PersistentVisitedArcs.log('WRITING (updateVisitedArcs)', visited);
       // TODO(sjmiles): turned off when revealed buggy just before demo, fix
       // to support deleting of Arcs from visited list
       db.child(`users/${user.id}/arcs`).set(visited);
     }
   }
 }
-RemoteVisitedArcs.log = Xen.Base.logFactory('RemoteVisitedArcs', '#00796b');
-customElements.define('remote-visited-arcs', RemoteVisitedArcs);
+PersistentVisitedArcs.log = Xen.Base.logFactory('PersistentVisitedArcs', '#00796b');
+customElements.define('persistent-visited-arcs', PersistentVisitedArcs);
