@@ -9,44 +9,54 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
 */
 
 import WatchGroup from './watch-group.js';
-import ArcsUtils from "../lib/arcs-utils.js";
+import ArcsUtils from '../lib/arcs-utils.js';
 import Xen from '../../components/xen/xen.js';
+const db = window.db;
 
 class RemoteSharedHandles extends Xen.Base {
-  static get observedAttributes() { return ['arc','friends','user']; }
+  static get observedAttributes() { return ['arc', 'friends', 'user']; }
   _getInitialState() {
     return {
-      group: Object.assign(new WatchGroup(), {db})
+      group: new WatchGroup()
     };
   }
   _update(props, state, lastProps) {
     // TODO(sjmiles): rely on invariant that `arc` and `user` are required a-priori for `friends`?
     if (/*props.arc && props.user &&*/ props.friends !== lastProps.friends) {
       let watches = [];
-      if (props.friends) {
-        let friends = props.friends.map(friend => friend.rawData);
+      if (props.friends && props.user) {
+        // TODO(sjmiles): making a null-prototype object makes it easeir to read in console (roi?)
+        //let friends = props.friends.map(friend => friend.rawData);
+        let friends = props.friends.map(friend => Object.assign(Object.create(null), friend.rawData));
         // include `user` in friends, so we can access generic profile info this way
         // TODO(sjmiles): is adding 'user' to 'friends' copacetic?
-        friends.push({id: user.id});
-        watches = this._watchFriends(props.arc, friends, props.user, state.groups)
+        //friends.push({id: props.user.id});
+        friends.push(Object.assign(Object.create(null), {id: props.user.id}));
+        watches = this._watchFriends(props.arc, friends, props.user, state.groups);
         RemoteSharedHandles.log(`watching (raw) FRIENDS`, friends);
       }
       state.group.watches = watches;
     }
   }
+  //
+  // Level 1: watch all friends arcs listings so we can adapt dynamically
+  //
   _watchFriends(arc, friends, user, groups) {
     return friends.map(friend => {
       //RemoteSharedHandles.log(`watching friend's [${friend.id}] shared handles`);
-      let group = Object.assign(new WatchGroup(), {db});
+      let group = new WatchGroup();
       return {
         path: `users/${friend.id}`,
         handler: snap => {
           group.watches = this._watchSharedHandles(arc, user, snap.val());
         },
         group
-      }
+      };
     });
   }
+  //
+  // Level 2: iterate a friend's arcs listings and watch the individual handles
+  //
   _watchSharedHandles(arc, user, sharer) {
     //let remotes = ArcsUtils.getUserProfileKeys(sharer);
     let remotes = ArcsUtils.getUserShareKeys(sharer);
@@ -57,20 +67,26 @@ class RemoteSharedHandles extends Xen.Base {
         // TODO(wkorman): Rename `views` to `handles` below on the next database rebuild.
         path: `arcs/${key}/views`,
         // TODO(sjmiles): firebase knowledge here, maybe push down into watchGroup
-        handler: snapshot => this._remoteHandlesChanged(arc, key, snapshot.val(), sharer)
-      }
+        handler: snapshot => this._remoteHandlesChanged(arc, key, snapshot.val(), user, sharer)
+      };
     });
   }
-  _remoteHandlesChanged(arc, arcKey, handles, sharer) {
+  //
+  // Level 3: process data form individual handles
+  //
+  // TODO(sjmiles): need to delete vestigial handles
+  _remoteHandlesChanged(arc, arcKey, handles, user, sharer) {
     if (handles) {
-      Object.keys(handles).forEach(key => {
-        let handle = handles[key];
-        // TODO(sjmiles): hack per berni@
-        handle.metadata.name = sharer.name;
-        RemoteSharedHandles.log(`remoteHandlesChanged`, handle.metadata.tags);
-        ArcsUtils.createOrUpdateHandle(arc, handle, `SHARED[${arcKey}]`);
-      });
+      Object.values(handles).forEach(handle => this._remoteHandleChanged(arc, arcKey, user, sharer, handle));
     }
+  }
+  async _remoteHandleChanged(arc, arcKey, user, sharer, remote) {
+    // TODO(sjmiles): hack per berni@ (for descriptions?)
+    remote.metadata.name = sharer.name;
+    const handle = await ArcsUtils.createOrUpdateHandle(arc, remote, `SHARED[${arcKey}]`);
+    const typeName = handle.type.toPrettyString().toLowerCase();
+    handle.description = ArcsUtils._getHandleDescription(typeName, handle.tags, user.name, sharer.name);
+    RemoteSharedHandles.log(`remoteHandleChanged`, remote.metadata.tags, `"${handle.description}"`);
   }
 }
 RemoteSharedHandles.log = Xen.Base.logFactory('RemoteSHs', '#c79400');

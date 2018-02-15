@@ -9,11 +9,12 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
 */
 
 import Xen from '../../components/xen/xen.js';
+const db = window.db;
 
 class WatchGroup extends Xen.Base {
-  static get observedAttributes() { return ['watches','db']; }
+  static get observedAttributes() { return ['watches', 'db']; }
   add(watches) {
-    this._watchAll(this._props.db, watches, this._state.plugs);
+    this._watchAll(this._state.db, watches, this._state.plugs);
   }
   _getInitialState() {
     return {
@@ -21,9 +22,10 @@ class WatchGroup extends Xen.Base {
     };
   }
   _update(props, state, lastProps) {
+    state.db = props.db || db;
     if (props.watches !== lastProps.watches) {
       this._unplug(state.plugs);
-      this._watchAll(props.db, props.watches, state.plugs);
+      this._watchAll(state.db, props.watches, state.plugs);
     }
   }
   _unplug(plugs) {
@@ -45,7 +47,7 @@ class WatchGroup extends Xen.Base {
         }
         plugs.add(pull);
       }
-      //WatchGroup.log("total watches", WatchGroup.watchCount);
+      //WatchGroup.log('total watches', WatchGroup.watchCount);
     }
   }
   _watchPath(db, {path, handler, group}) {
@@ -58,7 +60,7 @@ class WatchGroup extends Xen.Base {
     return () => {
       node.off('value', handle);
       WatchGroup.watchCount--;
-      //WatchGroup.log("total watches", WatchGroup.watchCount);
+      //WatchGroup.log('total watches', WatchGroup.watchCount);
     };
   }
 }

@@ -6,8 +6,6 @@
 // subject to an additional IP rights grant found at
 // http://polymer.github.io/PATENTS.txt
 
-"use strict";
-
 defineParticle(({DomParticle, resolver}) => {
 
   let host = `show-list`;
@@ -24,7 +22,6 @@ defineParticle(({DomParticle, resolver}) => {
     <div slotid="action" subid="{{id}}"></div>
   </template>
   <div items>{{items}}</div>
-  <hr>
 </div>
     `.trim();
 

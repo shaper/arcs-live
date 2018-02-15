@@ -63,7 +63,7 @@
 /******/ 	__webpack_require__.p = "";
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 15);
+/******/ 	return __webpack_require__(__webpack_require__.s = 31);
 /******/ })
 /************************************************************************/
 /******/ ([
@@ -96,7 +96,7 @@ function assert(test, message) {
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__shape_js__ = __webpack_require__(10);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__schema_js__ = __webpack_require__(4);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__type_variable_js__ = __webpack_require__(12);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__tuple_fields_js__ = __webpack_require__(31);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__tuple_fields_js__ = __webpack_require__(30);
 // @license
 // Copyright (c) 2017 Google Inc. All rights reserved.
 // This code may only be used under the BSD style license found at
@@ -267,10 +267,27 @@ class Type {
   }
 
   resolvedType() {
-    if (this.isTypeVariable && this.data.isResolved)
+    if (this.isSetView) {
+      let resolvedPrimitiveType = this.primitiveType().resolvedType();
+      return resolvedPrimitiveType ? resolvedPrimitiveType.setViewOf() : this;
+    }
+    if (this.isVariable && this.data.isResolved) {
       return this.data.resolution.resolvedType();
-
+    }
+    if (this.isTypeVariable && this.data.isResolved) {
+      return this.data.resolution.resolvedType();
+    }
     return this;
+  }
+
+  isResolved() {
+    if (this.isSetView) {
+      return this.primitiveType().isResolved();
+    }
+    if (this.isVariable) {
+      return this.data.isResolved;
+    }
+    return true;
   }
 
   toLiteral() {
@@ -329,7 +346,7 @@ class Type {
       return `${this.primitiveType().toPrettyString()} List`;
     }
     if (this.isVariable)
-      return `[${this.variableName}]`;
+      return this.data.isResolved ? this.data.resolution.toPrettyString() : `[~${this.name}]`;
     if (this.isVariableReference)
       return `[${this.variableReferenceName}]`;
     if (this.isEntity) {
@@ -751,20 +768,76 @@ class Schema {
     let optional = this.optional;
     let classJunk = ['toJSON', 'prototype', 'toString', 'inspect'];
 
-    let checkFieldIsValidAndGetTypes = (name, op) => {
-      let fieldType = normative[name] || optional[name];
+    let convertToJsType = fieldType => {
       switch (fieldType) {
-        case undefined:
-          throw new Error(`Can't ${op} field ${name} not in schema ${className}`);
+        case 'Text':
+          return 'string';
+        case 'URL':
+          return 'string';
         case 'Number':
-          return [fieldType, 'number'];
+          return 'number';
         case 'Boolean':
-          return [fieldType, 'boolean'];
+          return 'boolean';
         case 'Object':
-          return [fieldType, 'object'];
+          return 'object';
         default:
-          // Text, URL
-          return [fieldType, 'string'];
+          throw new Error(`Unknown field type ${fieldType} in schema ${className}`);
+      }
+    };
+
+    let validateFieldAndTypes = (op, name, value) => {
+      let fieldType = normative[name] || optional[name];
+      if (fieldType === undefined) {
+        throw new Error(`Can't ${op} field ${name}; not in schema ${className}`);
+      }
+      if (value === undefined || value === null) {
+        return;
+      }
+
+      if (typeof(fieldType) !== 'object') {
+        // Primitive fields.
+        if (typeof(value) !== convertToJsType(fieldType)) {
+          throw new TypeError(
+              `Type mismatch ${op}ting field ${name} (type ${fieldType}); ` +
+              `value '${value}' is type ${typeof(value)}`);
+        }
+        return;
+      }
+
+      switch (fieldType.kind) {
+        case 'schema-union':
+          // Value must be a primitive that matches one of the union types.
+          for (let innerType of fieldType.types) {
+            if (typeof(value) === convertToJsType(innerType)) {
+              return;
+            }
+          }
+          throw new TypeError(
+              `Type mismatch ${op}ting field ${name} (union [${fieldType.types}]); ` +
+              `value '${value}' is type ${typeof(value)}`);
+          break;
+
+        case 'schema-tuple':
+          // Value must be an array whose contents match each of the tuple types.
+          if (!Array.isArray(value)) {
+            throw new TypeError(`Cannot ${op} tuple ${name} with non-array value '${value}'`);
+          }
+          if (value.length != fieldType.types.length) {
+            throw new TypeError(`Length mismatch ${op}ting tuple ${name} ` +
+                                `[${fieldType.types}] with value '${value}'`);
+          }
+          fieldType.types.map((innerType, i) => {
+            if (value[i] !== undefined && value[i] !== null &&
+                typeof(value[i]) !== convertToJsType(innerType)) {
+              throw new TypeError(
+                  `Type mismatch ${op}ting field ${name} (tuple [${fieldType.types}]); ` +
+                  `value '${value}' has type ${typeof(value[i])} at index ${i}`);
+            }
+          });
+          break;
+
+        default:
+          throw new Error(`Unknown kind ${kind} in schema ${className}`);
       }
     };
 
@@ -773,22 +846,15 @@ class Schema {
         super(userIDComponent);
         this.rawData = new Proxy({}, {
           get: (target, name) => {
-            if (classJunk.includes(name))
+            if (classJunk.includes(name) || name.constructor == Symbol) {
               return undefined;
-            if (name.constructor == Symbol)
-              return undefined;
-            let [fieldType, jsType] = checkFieldIsValidAndGetTypes(name, 'get');
+            }
             let value = target[name];
-            __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(value == undefined || value === null || typeof(value) == jsType,
-                   `Field ${name} (type ${fieldType}) has value ${value} (type ${typeof(value)})`);
+            validateFieldAndTypes('get', name, value);
             return value;
           },
           set: (target, name, value) => {
-            let [fieldType, jsType] = checkFieldIsValidAndGetTypes(name, 'set');
-            if (value !== undefined && value !== null && typeof(value) != jsType) {
-              throw new TypeError(
-                  `Can't set field ${name} (type ${fieldType}) to value ${value} (type ${typeof(value)})`);
-            }
+            validateFieldAndTypes('set', name, value);
             target[name] = value;
             return true;
           }
@@ -844,7 +910,22 @@ class Schema {
       if (Object.keys(properties).length > 0) {
         results.push(`  ${keyword}`);
         Object.keys(properties).forEach(name => {
-          let schemaType = Array.isArray(properties[name]) && properties[name].length > 1 ? `(${properties[name].join(' or ')})` : properties[name];
+          let property = properties[name];
+          let schemaType;
+          if (typeof(property) === 'object') {
+            switch (property.kind) {
+              case 'schema-union':
+                schemaType = `(${property.types.join(' or ')})`;
+                break;
+              case 'schema-tuple':
+                schemaType = `(${property.types.join(', ')})`;
+                break;
+              default:
+                throw new Error(`Unknown kind ${property.kind} in schema ${this.name}`);
+            }
+          } else {
+            schemaType = property;
+          }
           results.push(`    ${schemaType} ${name}`);
         });
       }
@@ -890,7 +971,7 @@ class Schema {
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_js__ = __webpack_require__(7);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__browser_lib_xen_state_js__ = __webpack_require__(22);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__browser_lib_xen_state_js__ = __webpack_require__(21);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -1032,7 +1113,7 @@ class DomParticle extends __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__bro
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_js__ = __webpack_require__(30);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_js__ = __webpack_require__(29);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_spec_js__ = __webpack_require__(3);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__tracelib_trace_js__ = __webpack_require__(32);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__platform_assert_web_js__ = __webpack_require__(0);
@@ -1619,10 +1700,6 @@ class TypeVariable {
     return !!this.resolution;
   }
 
-  resolve(type) {
-    this.resolution = type;
-  }
-
   equals(other) {
     if (this.isResolved && other.isResolved) {
       return this.resolution.equals(other.resolution);
@@ -1639,99 +1716,10 @@ class TypeVariable {
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_loader_js__ = __webpack_require__(29);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__arcs_runtime_particle_js__ = __webpack_require__(7);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__arcs_runtime_dom_particle_js__ = __webpack_require__(6);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__arcs_runtime_transformation_dom_particle_js__ = __webpack_require__(11);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-
-const logFactory = (preamble, color, log='log') => console[log].bind(console, `Ptcl:%c${preamble}`, `background: ${color}; color: white; padding: 1px 6px 2px 7px; border-radius: 4px;`);
-const html = (strings, ...values) => (strings[0] + values.map((v, i) => v + strings[i + 1]).join('')).trim();
-const dumbCache = {};
-
-class BrowserLoader extends __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_loader_js__["a" /* default */] {
-  constructor(urlMap) {
-    super();
-    this._urlMap = urlMap;
-  }
-  _loadURL(url) {
-    const resource = dumbCache[url];
-    if (resource) {
-      //console.warn('dumbCache hit for', url);
-    }
-    return resource || (dumbCache[url] = super._loadURL(url));
-  }
-  _resolve(path) {
-    //return new URL(path, this._base).href;
-    let url = this._urlMap[path];
-    if (!url && path) {
-      // TODO(sjmiles): inefficient!
-      let macro = Object.keys(this._urlMap).sort((a,b) => b.length - a.length).find(k => path.slice(0, k.length) == k);
-      if (macro) {
-        url = this._urlMap[macro] + path.slice(macro.length);
-      }
-    }
-    url = url || path;
-    //console.log(`browser-cdn-loader: resolve(${path}) = ${url}`);
-    return url;
-  }
-  loadResource(name) {
-    return this._loadURL(this._resolve(name));
-  }
-  requireParticle(fileName) {
-    let path = this._resolve(fileName);
-    // inject path to this particle into the UrlMap,
-    // allows "foo.js" particle to invoke `importScripts(resolver('foo/othermodule.js'))`
-    this.mapParticleUrl(path);
-    let result = [];
-    self.defineParticle = function(particleWrapper) {
-      result.push(particleWrapper);
-    };
-    importScripts(path);
-    delete self.defineParticle;
-    return this.unwrapParticle(result[0], logFactory(fileName.split('/').pop(), 'blue'));
-  }
-  mapParticleUrl(path) {
-    let parts = path.split('/');
-    let suffix = parts.pop();
-    let folder = parts.join('/');
-    let name = suffix.split('.').shift();
-    this._urlMap[name] = folder;
-  }
-  unwrapParticle(particleWrapper, log) {
-    // TODO(sjmiles): regarding `resolver`:
-    //  _resolve method allows particles to request remapping of assets paths
-    //  for use in DOM
-    let resolver = this._resolve.bind(this);
-    return particleWrapper({particle: __WEBPACK_IMPORTED_MODULE_1__arcs_runtime_particle_js__["a" /* default */], Particle: __WEBPACK_IMPORTED_MODULE_1__arcs_runtime_particle_js__["a" /* default */].Particle, DomParticle: __WEBPACK_IMPORTED_MODULE_2__arcs_runtime_dom_particle_js__["a" /* default */], TransformationDomParticle: __WEBPACK_IMPORTED_MODULE_3__arcs_runtime_transformation_dom_particle_js__["a" /* default */], resolver, log, html});
-  }
-}
-/* harmony export (immutable) */ __webpack_exports__["a"] = BrowserLoader;
-
-
-
-/***/ }),
-/* 14 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
 /* WEBPACK VAR INJECTION */(function(global) {/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__type_js__ = __webpack_require__(1);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__handle_js__ = __webpack_require__(27);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__handle_js__ = __webpack_require__(26);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__api_channel_js__ = __webpack_require__(21);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__api_channel_js__ = __webpack_require__(20);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__particle_spec_js__ = __webpack_require__(3);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__schema_js__ = __webpack_require__(4);
 /**
@@ -2064,32 +2052,207 @@ class InnerPEC {
 /* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(17)))
 
 /***/ }),
+/* 14 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_loader_js__ = __webpack_require__(28);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__arcs_runtime_particle_js__ = __webpack_require__(7);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__arcs_runtime_dom_particle_js__ = __webpack_require__(6);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__arcs_runtime_transformation_dom_particle_js__ = __webpack_require__(11);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+
+const logFactory = (preamble, color, log='log') => console[log].bind(console, `Ptcl:%c${preamble}`, `background: ${color}; color: white; padding: 1px 6px 2px 7px; border-radius: 4px;`);
+const html = (strings, ...values) => (strings[0] + values.map((v, i) => v + strings[i + 1]).join('')).trim();
+const dumbCache = {};
+
+class BrowserLoader extends __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_loader_js__["a" /* default */] {
+  constructor(urlMap) {
+    super();
+    this._urlMap = urlMap;
+  }
+  _loadURL(url) {
+    const resource = dumbCache[url];
+    if (resource) {
+      //console.warn('dumbCache hit for', url);
+    }
+    return resource || (dumbCache[url] = super._loadURL(url));
+  }
+  _resolve(path) {
+    //return new URL(path, this._base).href;
+    let url = this._urlMap[path];
+    if (!url && path) {
+      // TODO(sjmiles): inefficient!
+      let macro = Object.keys(this._urlMap).sort((a, b) => b.length - a.length).find(k => path.slice(0, k.length) == k);
+      if (macro) {
+        url = this._urlMap[macro] + path.slice(macro.length);
+      }
+    }
+    url = url || path;
+    //console.log(`browser-cdn-loader: resolve(${path}) = ${url}`);
+    return url;
+  }
+  loadResource(name) {
+    return this._loadURL(this._resolve(name));
+  }
+  requireParticle(fileName) {
+    let path = this._resolve(fileName);
+    // inject path to this particle into the UrlMap,
+    // allows "foo.js" particle to invoke `importScripts(resolver('foo/othermodule.js'))`
+    this.mapParticleUrl(path);
+    let result = [];
+    self.defineParticle = function(particleWrapper) {
+      result.push(particleWrapper);
+    };
+    importScripts(path);
+    delete self.defineParticle;
+    return this.unwrapParticle(result[0], logFactory(fileName.split('/').pop(), 'blue'));
+  }
+  mapParticleUrl(path) {
+    let parts = path.split('/');
+    let suffix = parts.pop();
+    let folder = parts.join('/');
+    let name = suffix.split('.').shift();
+    this._urlMap[name] = folder;
+  }
+  unwrapParticle(particleWrapper, log) {
+    // TODO(sjmiles): regarding `resolver`:
+    //  _resolve method allows particles to request remapping of assets paths
+    //  for use in DOM
+    let resolver = this._resolve.bind(this);
+    return particleWrapper({particle: __WEBPACK_IMPORTED_MODULE_1__arcs_runtime_particle_js__["a" /* default */], Particle: __WEBPACK_IMPORTED_MODULE_1__arcs_runtime_particle_js__["a" /* default */].Particle, DomParticle: __WEBPACK_IMPORTED_MODULE_2__arcs_runtime_dom_particle_js__["a" /* default */], TransformationDomParticle: __WEBPACK_IMPORTED_MODULE_3__arcs_runtime_transformation_dom_particle_js__["a" /* default */], resolver, log, html});
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = BrowserLoader;
+
+
+
+/***/ }),
 /* 15 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-Object.defineProperty(__webpack_exports__, "__esModule", { value: true });
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_inner_PEC_js__ = __webpack_require__(14);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__browser_cdn_loader_js__ = __webpack_require__(13);
-// @license
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
 
+let supportedTypes = ['Text', 'URL', 'Number', 'Boolean'];
 
+class JsonldToManifest {
+  static convert(jsonld, theClass) {
+    let obj = JSON.parse(jsonld);
+    let classes = {};
+    let properties = {};
 
+    if (!obj['@graph']) {
+      obj['@graph'] = [obj];
+    }
 
-const log = console.log.bind(console, `%cworker-entry`, `background: #12005e; color: white; padding: 1px 6px 2px 7px; border-radius: 6px;`);
+    for (let item of obj['@graph']) {
+      if (item['@type'] == 'rdf:Property')
+        properties[item['@id']] = item;
+      else if (item['@type'] == 'rdfs:Class') {
+        classes[item['@id']] = item;
+        item.subclasses = [];
+        item.superclass = null;
+      }
+    }
 
-self.onmessage = function(e) {
-  self.onmessage = null;
-  let {id, base} = e.data;
-  //log('starting worker', id);
-  new __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_inner_PEC_js__["a" /* default */](e.ports[0], id, new __WEBPACK_IMPORTED_MODULE_1__browser_cdn_loader_js__["a" /* default */](base));
-};
+    for (let clazz of Object.values(classes)) {
+      if (clazz['rdfs:subClassOf'] !== undefined) {
+        if (clazz['rdfs:subClassOf'].length == undefined)
+          clazz['rdfs:subClassOf'] = [clazz['rdfs:subClassOf']];
+        for (let subClass of clazz['rdfs:subClassOf']) {
+          let superclass = subClass['@id'];
+          if (clazz.superclass == undefined)
+            clazz.superclass = [];
+          if (classes[superclass]) {
+            classes[superclass].subclasses.push(clazz);
+            clazz.superclass.push(classes[superclass]);
+          } else {
+            clazz.superclass.push({'@id': superclass});
+          }
+        }
+      }
+    }
+
+    for (let clazz of Object.values(classes)) {
+      if (clazz.subclasses.length == 0 && theClass == undefined) {
+        theClass = clazz;
+      }
+    }
+
+    let relevantProperties = [];
+    for (let property of Object.values(properties)) {
+      let domains = property['schema:domainIncludes'];
+      if (!domains)
+        domains = {'@id': theClass['@id']};
+      if (!domains.length)
+        domains = [domains];
+      domains = domains.map(a => a['@id']);
+      if (domains.includes(theClass['@id'])) {
+        let name = property['@id'].split(':')[1];
+        let type = property['schema:rangeIncludes'];
+        if (!type)
+          console.log(property);
+        if (!type.length)
+          type = [type];
+
+        type = type.map(a => a['@id'].split(':')[1]);
+        type = type.filter(type => supportedTypes.includes(type));
+        if (type.length > 0)
+        relevantProperties.push({name, type});
+      }
+    }
+
+    let className = theClass['@id'].split(':')[1];
+    let superNames = theClass.superclass ? theClass.superclass.map(a => a['@id'].split(':')[1]) : [];
+
+    let s = '';
+    for (let superName of superNames)
+      s += `import 'https://schema.org/${superName}'\n\n`;
+
+    s += `schema ${className}`;
+    if (superNames.length > 0)
+      s += ` extends ${superNames.join(', ')}`;
+
+    if (relevantProperties.length > 0) {
+      s += '\n  optional';
+      for (let property of relevantProperties) {
+        let type;
+        if (property.type.length > 1)
+          type = '(' + property.type.join(' or ') + ')';
+        else
+          type = property.type[0];
+        s += `\n    ${type} ${property.name}`;
+      }
+    }
+    s += '\n';
+
+    return s;
+  }
+}
+
+/* harmony default export */ __webpack_exports__["a"] = (JsonldToManifest);
 
 
 /***/ }),
@@ -2314,122 +2477,7 @@ module.exports = g;
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-let supportedTypes = ['Text', 'URL', 'Number', 'Boolean'];
-
-class JsonldToManifest {
-  static convert(jsonld, theClass) {
-    let obj = JSON.parse(jsonld);
-    let classes = {};
-    let properties = {};
-
-    if (!obj['@graph']) {
-      obj['@graph'] = [obj];
-    }
-
-    for (let item of obj['@graph']) {
-      if (item['@type'] == 'rdf:Property')
-        properties[item['@id']] = item;
-      else if (item['@type'] == 'rdfs:Class') {
-        classes[item['@id']] = item;
-        item.subclasses = [];
-        item.superclass = null;
-      }
-    }
-
-    for (let clazz of Object.values(classes)) {
-      if (clazz['rdfs:subClassOf'] !== undefined) {
-        if (clazz['rdfs:subClassOf'].length == undefined)
-          clazz['rdfs:subClassOf'] = [clazz['rdfs:subClassOf']];
-        for (let subClass of clazz['rdfs:subClassOf']) {
-          let superclass = subClass['@id'];
-          if (clazz.superclass == undefined)
-            clazz.superclass = [];
-          if (classes[superclass]) {
-            classes[superclass].subclasses.push(clazz);
-            clazz.superclass.push(classes[superclass]);
-          } else {
-            clazz.superclass.push({'@id': superclass});
-          }
-        }
-      }
-    }
-
-    for (let clazz of Object.values(classes)) {
-      if (clazz.subclasses.length == 0 && theClass == undefined) {
-        theClass = clazz;
-      }
-    }
-
-    let relevantProperties = [];
-    for (let property of Object.values(properties)) {
-      let domains = property['schema:domainIncludes'];
-      if (!domains)
-        domains = {'@id': theClass['@id']};
-      if (!domains.length)
-        domains = [domains];
-      domains = domains.map(a => a['@id']);
-      if (domains.includes(theClass['@id'])) {
-        let name = property['@id'].split(':')[1];
-        let type = property['schema:rangeIncludes'];
-        if (!type)
-          console.log(property);
-        if (!type.length)
-          type = [type];
-
-        type = type.map(a => a['@id'].split(':')[1]);
-        type = type.filter(type => supportedTypes.includes(type));
-        if (type.length > 0)
-        relevantProperties.push({name, type});
-      }
-    }
-
-    let className = theClass['@id'].split(':')[1];
-    let superNames = theClass.superclass ? theClass.superclass.map(a => a['@id'].split(':')[1]) : [];
-
-    let s = '';
-    for (let superName of superNames)
-      s += `import 'https://schema.org/${superName}'\n\n`;
-
-    s += `schema ${className}`;
-    if (superNames.length > 0)
-      s += ` extends ${superNames.join(', ')}`;
-
-    if (relevantProperties.length > 0) {
-      s += '\n  optional';
-      for (let property of relevantProperties) {
-        let type;
-        if (property.type.length > 1)
-          type = '(' + property.type.join(' or ') + ')';
-        else
-          type = property.type[0];
-        s += `\n    ${type} ${property.name}`;
-      }
-    }
-    s += '\n';
-
-    return s;
-  }
-}
-
-/* harmony default export */ __webpack_exports__["a"] = (JsonldToManifest);
-
-
-/***/ }),
-/* 19 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_debug_abstract_devtools_channel_js__ = __webpack_require__(23);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_debug_abstract_devtools_channel_js__ = __webpack_require__(22);
 /**
  * @license
  * Copyright (c) 2018 Google Inc. All rights reserved.
@@ -2458,7 +2506,7 @@ class ChromeExtensionChannel extends __WEBPACK_IMPORTED_MODULE_0__runtime_debug_
 
 
 /***/ }),
-/* 20 */
+/* 19 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -2473,7 +2521,7 @@ class ChromeExtensionChannel extends __WEBPACK_IMPORTED_MODULE_0__runtime_debug_
 
 
 /***/ }),
-/* 21 */
+/* 20 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -2482,7 +2530,7 @@ class ChromeExtensionChannel extends __WEBPACK_IMPORTED_MODULE_0__runtime_debug_
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_spec_js__ = __webpack_require__(3);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__type_js__ = __webpack_require__(1);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__ = __webpack_require__(25);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__ = __webpack_require__(24);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -2829,7 +2877,7 @@ class PECInnerPort extends APIPort {
 
 
 /***/ }),
-/* 22 */
+/* 21 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -2942,7 +2990,7 @@ let nob = () => Object.create(null);
 
 
 /***/ }),
-/* 23 */
+/* 22 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -2987,11 +3035,11 @@ class AbstractDevtoolsChannel {
 
 
 /***/ }),
-/* 24 */
+/* 23 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__ = __webpack_require__(19);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__ = __webpack_require__(18);
 /**
  * @license
  * Copyright (c) 2018 Google Inc. All rights reserved.
@@ -3015,11 +3063,11 @@ let instance = null;
 
 
 /***/ }),
-/* 25 */
+/* 24 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__ = __webpack_require__(24);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__ = __webpack_require__(23);
 /**
  * @license
  * Copyright (c) 2018 Google Inc. All rights reserved.
@@ -3142,7 +3190,7 @@ class OuterPortAttachment {
 
 
 /***/ }),
-/* 26 */
+/* 25 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -3157,11 +3205,11 @@ class OuterPortAttachment {
 
 
 /***/ }),
-/* 27 */
+/* 26 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__identifier_js__ = __webpack_require__(28);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__identifier_js__ = __webpack_require__(27);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__entity_js__ = __webpack_require__(2);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__relation_js__ = __webpack_require__(9);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__symbols_js__ = __webpack_require__(5);
@@ -3208,6 +3256,7 @@ function restore(entry, entityClass) {
  */
 class Handle {
   constructor(view, particleId, canRead, canWrite) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(!(view instanceof Handle));
     this._view = view;
     this.canRead = canRead;
     this.canWrite = canWrite;
@@ -3385,7 +3434,7 @@ function handleFor(view, isSet, particleId, canRead = true, canWrite = true) {
 
 
 /***/ }),
-/* 28 */
+/* 27 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -3423,18 +3472,18 @@ class Identifier {
 
 
 /***/ }),
-/* 29 */
+/* 28 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_fs_web_js__ = __webpack_require__(8);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_vm_web_js__ = __webpack_require__(20);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__fetch_web_js__ = __webpack_require__(26);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_vm_web_js__ = __webpack_require__(19);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__fetch_web_js__ = __webpack_require__(25);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__particle_js__ = __webpack_require__(7);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__dom_particle_js__ = __webpack_require__(6);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__transformation_dom_particle_js__ = __webpack_require__(11);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__converters_jsonldToManifest_js__ = __webpack_require__(18);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__converters_jsonldToManifest_js__ = __webpack_require__(15);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -3466,6 +3515,9 @@ class Loader {
 
   join(prefix, path) {
     if (/^https?:\/\//.test(path))
+      return path;
+    // TODO: replace this with something that isn't hacky
+    if (path[0] == '/' || path[1] == ':')
       return path;
     prefix = this.path(prefix);
     return prefix + path;
@@ -3531,7 +3583,7 @@ class Loader {
 
 
 /***/ }),
-/* 30 */
+/* 29 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -3586,7 +3638,7 @@ let BasicEntity = testEntityClass('BasicEntity');
 
 
 /***/ }),
-/* 31 */
+/* 30 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -3631,6 +3683,35 @@ class TupleFields {
   }
 }
 /* harmony export (immutable) */ __webpack_exports__["a"] = TupleFields;
+
+
+/***/ }),
+/* 31 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+Object.defineProperty(__webpack_exports__, "__esModule", { value: true });
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_inner_PEC_js__ = __webpack_require__(13);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__browser_cdn_loader_js__ = __webpack_require__(14);
+// @license
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+
+
+
+const log = console.log.bind(console, `%cworker-entry`, `background: #12005e; color: white; padding: 1px 6px 2px 7px; border-radius: 6px;`);
+
+self.onmessage = function(e) {
+  self.onmessage = null;
+  let {id, base} = e.data;
+  //log('starting worker', id);
+  new __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_inner_PEC_js__["a" /* default */](e.ports[0], id, new __WEBPACK_IMPORTED_MODULE_1__browser_cdn_loader_js__["a" /* default */](base));
+};
 
 
 /***/ }),
