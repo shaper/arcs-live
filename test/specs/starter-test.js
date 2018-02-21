@@ -387,8 +387,9 @@ describe('test Arcs demo flows', function() {
     // Rather than trying to mock this out let's just grab the first
     // restaurant.
     const restaurantSelectors = particleSelectors('root', [
-      'div.item',
-      'div.title'
+      '#webtest-title'
+      //'div.item',
+      //'div.title'
     ]);
     waitForVisible(restaurantSelectors);
     waitForSuggestion('Make a reservation');
@@ -427,7 +428,7 @@ describe('test Arcs demo flows', function() {
     // (2) verify 'action' slot is not visible after all products were moved.
 
     acceptSuggestion(
-      'Buy gifts for Claire, estimate arrival date for Products'
+      'Buy gifts for Claire\'s Birthday on 2017-08-04, Estimate arrival date for products'
     );
     acceptSuggestion(
       'Check manufacturer information for products from your browsing context'

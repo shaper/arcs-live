@@ -6,9 +6,11 @@
 // subject to an additional IP rights grant found at
 // http://polymer.github.io/PATENTS.txt
 
+'use strict';
+
 defineParticle(({DomParticle, resolver}) => {
 
-  let host = `[show-products]`;
+  let host = `[show-items]`;
 
   let styles = `
 <style>
@@ -24,7 +26,7 @@ defineParticle(({DomParticle, resolver}) => {
     font-weight: bold;
   }
   ${host} > x-list [item] {
-    /*padding: 4px 8px;*/
+    padding: 4px 8px;
     background-color: white;
     border-bottom: 1px solid #eeeeee;
   }
@@ -43,7 +45,7 @@ defineParticle(({DomParticle, resolver}) => {
 </style>
   `;
 
-  let productStyles = `
+  let itemStyles = `
 <style>
   ${host} > x-list [row] {
     display: flex;
@@ -87,10 +89,9 @@ defineParticle(({DomParticle, resolver}) => {
 </style>
   `;
 
-  let productTemplate = `
+  let itemTemplate = `
 <template>
   <div item>
-    <div slotid="prenotation" subid="{{subId}}"></div>
     <div row>
       <div col0>
         <div name title="{{name}}">{{name}}</div>
@@ -102,22 +103,28 @@ defineParticle(({DomParticle, resolver}) => {
         <img src="{{image}}">
       </div>
     </div>
-    <div slotid="annotation" subid="{{subId}}"></div>
+    <div slotid="annotation" subid="{{subId}}">
+    </div>
   </div>
 </template>
   `;
 
   let template = `
 ${styles}
-${productStyles}
-<div show-products>
+${itemStyles}
+<div show-items>
   <div head>
     <span>Your shortlist</span>
   </div>
+
   <div slotid="preamble"></div>
+
   <div empty hidden="{{haveItems}}">List is empty</div>
-  <x-list items="{{items}}">${productTemplate}</x-list>
+
+  <x-list items="{{items}}">${itemTemplate}</x-list>
+
   <div slotid="action"></div>
+
   <div slotid="postamble"></div>
 </div>
     `.trim();
@@ -127,19 +134,44 @@ ${productStyles}
       return template;
     }
     _willReceiveProps(props) {
-      let items = props.list.map(({id, rawData}) => {
+      let items = props.list.map(({rawData, id}) => {
         // TODO(sjmiles): rawData provides POJO access, but shortcuts schema-enforcing getters
         let item = Object.assign({}, rawData);
         item.image = resolver ? resolver(item.image) : item.image;
         item.subId = id;
         return item;
       });
+
+      // This is for description capabilities demo purposes.
+      this._setDynamicDescription(items);
+      this._setDynamicDomDescription(items);
+
       this._setState({
         renderModel: {
           items,
           haveItems: items.length > 0
         }
       });
+    }
+    _setDynamicDescription(items) {
+      if (items.length >= 6) {
+        this.setParticleDescription('Show a lot of items ${list}');
+        this.setDescriptionPattern('list', 'my long list');
+      } else if (items.length > 3) {
+        this.setParticleDescription('Show a few items: ${list}');
+        this.setDescriptionPattern('list', 'my short list');
+      }
+    }
+    _setDynamicDomDescription(items) {
+      let template = `
+          <span>Show <u><span>{{list}}</span></u><span hidden="{{actionEmpty}}"> and <i><span style='color:red'>{{action}}</span></i></span></span>
+          `.trim();
+      let model = {
+        list: '${list}',
+        action: '${root.action}',
+        actionEmpty: '${root.action}._empty_'
+      };
+      this.setParticleDescription({template, model});
     }
     _render(props, state) {
       return state.renderModel;

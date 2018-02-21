@@ -6,19 +6,17 @@
 // subject to an additional IP rights grant found at
 // http://polymer.github.io/PATENTS.txt
 
-import 'Product.schema'
+import '../Arcs/Description.schema'
 
-particle ShowProducts in 'source/ShowProducts.js'
-  ShowProducts(in [Product] list)
+particle ShowItems in 'source/ShowItems.js'
+  ShowItems(in [~a] list, out [Description] descriptions)
   affordance dom
   affordance dom-touch
-  consume root
+  must consume root
     provide action
       view list
     provide preamble
     provide postamble
     provide set of annotation
-      view list
-    provide set of prenotation
       view list
   description `show ${list}`

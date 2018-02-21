@@ -132,8 +132,10 @@ class ArcFooter extends Xen.Base {
   }
   _commitSearch(search) {
     search = search || '';
-    this._setState({search, open: true});
-    this._fire('search', {search});
+    if (this._state.search !== search) {
+      this._setState({search, open: true});
+      this._fire('search', {search});
+    }
   }
 }
 ArcFooter.log = Xen.Base.logFactory('ArcFooter', '#673AB7');

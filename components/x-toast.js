@@ -50,7 +50,6 @@ class XToast extends HTMLElement {
   }
   onClick() {
     this.dispatchEvent(new CustomEvent('toggle'));
-    //this.open = !this.open
   }
   get open() {
     return this.hasAttribute('open');

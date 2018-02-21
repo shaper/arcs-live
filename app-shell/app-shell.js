@@ -28,7 +28,6 @@ import './elements/remote-shared-handles.js';
 import './elements/remote-visited-arcs.js';
 
 // tools
-import '../components/arc-tools/explorer-hotkey.js';
 import '../components/arc-tools/handle-explorer.js';
 import '../components/arc-tools/local-data.js';
 import '../components/arc-tools/manifest-data.js';
@@ -38,9 +37,11 @@ import '../components/simple-tabs.js';
 import '../components/suggestion-element.js';
 import '../components/toggle-button.js';
 
-// For particles.
+// for particles
 import '../components/corellia-xen/cx-input.js';
 import '../components/good-map.js';
+// TODO(sjmiles): deprecated
+import '../components/x-list.js';
 
 const template = ArcsUtils.html`
 <style>

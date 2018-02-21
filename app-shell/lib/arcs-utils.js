@@ -118,7 +118,7 @@ const ArcsUtils = {
   async _requireHandle(arc, type, name, id, tags) {
     let handle = arc.context.findHandleById(id);
     if (!handle) {
-      handle = await arc.context.newView(type, name, id, tags);
+      handle = await arc.context.newHandle(type, name, id, tags);
       ArcsUtils.log('synthesized handle', id, tags);
     }
     return handle;
@@ -149,7 +149,7 @@ const ArcsUtils = {
     if (handle.toList) {
       data && Object.values(data).forEach(e => handle.store(e));
     } else {
-      handle.set(data);
+      data && handle.set(data);
     }
   },
   getUserProfileKeys(user) {

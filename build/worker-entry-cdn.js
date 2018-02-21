@@ -96,7 +96,7 @@ function assert(test, message) {
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__shape_js__ = __webpack_require__(10);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__schema_js__ = __webpack_require__(4);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__type_variable_js__ = __webpack_require__(12);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__tuple_fields_js__ = __webpack_require__(30);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__tuple_fields_js__ = __webpack_require__(27);
 // @license
 // Copyright (c) 2017 Google Inc. All rights reserved.
 // This code may only be used under the BSD style license found at
@@ -119,7 +119,8 @@ function addType(name, arg) {
   let upperArg = arg ? arg[0].toUpperCase() + arg.substring(1) : '';
   Object.defineProperty(Type.prototype, `${lowerName}${upperArg}`, {
     get: function() {
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this[`is${name}`], `{${this.tag}, ${this.data}} is not of type ${name}`);
+      if (!this[`is${name}`])
+        __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this[`is${name}`], `{${this.tag}, ${this.data}} is not of type ${name}`);
       return this.data;
     }});
   Object.defineProperty(Type.prototype, `is${name}`, {
@@ -144,7 +145,7 @@ class Type {
     this.data = data;
   }
 
-  static newView(type) {
+  static newHandle(type) {
     console.warn('Type.newView is deprecated. Please use Type.newSetView instead');
     return Type.newSetView(type);
   }
@@ -205,36 +206,12 @@ class Type {
     return this;
   }
 
-  // Replaces manifestReference types with resolved schemas.
-  resolveReferences(resolve) {
-    if (this.isManifestReference) {
-      let resolved = resolve(this.data);
-      if (resolved.schema) {
-        return Type.newEntity(resolved.schema);
-      } else if (resolved.shape) {
-        return Type.newInterface(resolved.shape);
-      } else {
-        throw new Error('Expected {shape} or {schema}');
-      }
-    }
-
-    if (this.isSetView) {
-      return this.primitiveType().resolveReferences(resolve).setViewOf();
-    }
-
-    return this;
-  }
-
   static unwrapPair(type1, type2) {
     __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(type1 instanceof Type);
     __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(type2 instanceof Type);
-    if (type1.tag != type2.tag) {
-      return null;
-    }
-    if (type1.isEntity || type1.isInterface || type1.isVariableReference || type1.isManifestReference) {
-      return [type1, type2];
-    }
-    return Type.unwrapPair(type1.data, type2.data);
+    if (type1.isSetView && type2.isSetView)
+      return [type1.primitiveType(), type2.primitiveType()];
+    return [type1, type2];
   }
 
   equals(type) {
@@ -257,8 +234,24 @@ class Type {
     return JSON.stringify(this.data) == JSON.stringify(type.data);
   }
 
-  get isValid() {
-    return !this.variableReference;
+  _applyExistenceTypeTest(test) {
+    if (this.isSetView)
+      return this.primitiveType()._applyExistenceTypeTest(test);
+    if (this.isInterface)
+      return this.data._applyExistenceTypeTest(test);
+    return test(this);
+  }
+
+  get hasVariable() {
+    return this._applyExistenceTypeTest(type => type.isVariable);
+  }
+
+  get hasUnresolvedVariable() {
+    return this._applyExistenceTypeTest(type => type.isVariable && !type.variable.isResolved);
+  }
+
+  get hasVariableReference() {
+    return this._applyExistenceTypeTest(type => type.isVariableReference);
   }
 
   primitiveType() {
@@ -333,10 +326,16 @@ class Type {
     if (this.isEntity)
       return this.entitySchema.name;
     if (this.isInterface)
-      return 'Interface';
+      return this.interfaceShape.name;
     if (this.isTuple)
       return this.tupleFields.toString();
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])('Add support to serializing type:', this);
+    if (this.isVariableReference)
+      return `~${this.data}`;
+    if (this.isManifestReference)
+      return this.data;
+    if (this.isVariable)
+      return `~${this.data.name}`;
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(false, `Add support to serializing type: ${JSON.stringify(this)}`);
   }
 
   toPrettyString() {
@@ -358,14 +357,11 @@ class Type {
     }
     if (this.isTuple)
       return this.tupleFields.toString();
-    if (this.isManifestReference)
-      return this.manifestReferenceName;
     if (this.isInterface)
       return this.interfaceShape.toPrettyString();
   }
 }
 
-addType('ManifestReference');
 addType('Entity', 'schema');
 addType('VariableReference');
 addType('Variable');
@@ -502,18 +498,20 @@ class SlotSpec {
     this.name = slotModel.name;
     this.isRequired = slotModel.isRequired;
     this.isSet = slotModel.isSet;
+    this.tags = slotModel.tags;
     this.formFactor = slotModel.formFactor;
     this.providedSlots = [];
     slotModel.providedSlots.forEach(ps => {
-      this.providedSlots.push(new ProvidedSlotSpec(ps.name, ps.isSet, ps.formFactor, ps.views));
+      this.providedSlots.push(new ProvidedSlotSpec(ps.name, ps.isSet, ps.tags, ps.formFactor, ps.views));
     });
   }
 }
 
 class ProvidedSlotSpec {
-  constructor(name, isSet, formFactor, views) {
+  constructor(name, isSet, tags, formFactor, views) {
     this.name = name;
     this.isSet = isSet;
+    this.tags = tags;
     this.formFactor = formFactor;
     this.views = views;
   }
@@ -859,6 +857,7 @@ class Schema {
             return true;
           }
         });
+        __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(data, `can't construct entity with null data`);
         for (let [name, value] of Object.entries(data)) {
           this.rawData[name] = value;
         }
@@ -971,7 +970,7 @@ class Schema {
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_js__ = __webpack_require__(7);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__browser_lib_xen_state_js__ = __webpack_require__(21);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__shell_components_xen_xen_state_js__ = __webpack_require__(28);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -991,7 +990,7 @@ class Schema {
 /** @class DomParticle
  * Particle that does stuff with DOM.
  */
-class DomParticle extends __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__browser_lib_xen_state_js__["a" /* default */])(__WEBPACK_IMPORTED_MODULE_1__particle_js__["b" /* Particle */]) {
+class DomParticle extends __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__shell_components_xen_xen_state_js__["a" /* default */])(__WEBPACK_IMPORTED_MODULE_1__particle_js__["b" /* Particle */]) {
   /** @method get template()
    * Override to return a String defining primary markup.
    */
@@ -1113,7 +1112,7 @@ class DomParticle extends __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__bro
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_js__ = __webpack_require__(29);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_js__ = __webpack_require__(26);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_spec_js__ = __webpack_require__(3);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__tracelib_trace_js__ = __webpack_require__(32);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__platform_assert_web_js__ = __webpack_require__(0);
@@ -1450,18 +1449,25 @@ function _toLiteral(member) {
   return member;
 }
 
+const handleFields = ['type', 'name', 'direction'];
+const slotFields = ['name', 'direction', 'isRequired', 'isSet'];
+
 class Shape {
-  constructor(views, slots) {
+  constructor(name, views, slots) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(name);
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(views !== undefined);
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(slots !== undefined);
+    this.name = name;
     this.views = views;
     this.slots = slots;
     this._typeVars = [];
     for (let view of views)
-      for (let field of ['type', 'name', 'direction'])
+      for (let field of handleFields)
         if (Shape.isTypeVar(view[field]))
           this._typeVars.push({object: view, field});
 
     for (let slot of slots)
-      for (let field of ['name', 'direction', 'isRequired', 'isSet'])
+      for (let field of slotFields)
         if (Shape.isTypeVar(slot[field]))
           this._typeVars.push({object: slot, field});
   }
@@ -1470,22 +1476,54 @@ class Shape {
     return 'SHAAAAPE';
   }
 
+  _applyExistenceTypeTest(test) {
+    for (let typeRef of this._typeVars) {
+      if (test(typeRef.object[typeRef.field]))
+        return true;
+    }
+
+    return false;
+  }
+
+  _handlesToManifestString() {
+    return this.views
+      .map(handle => {
+        let type = handle.type.resolvedType();
+        return `${handle.direction ? handle.direction + ' ': ''}${type.toString()}${handle.name ? ' ' + handle.name : ''}`;
+      }).join(', ');
+  }
+
+  _slotsToManifestString() {
+    // TODO deal with isRequired
+    return this.slots
+      .map(slot => `  ${slot.direction} ${slot.isSet ? 'set of ' : ''}${slot.name ? slot.name + ' ' : ''}`)
+      .join('\n');
+  }
+  // TODO: Include name as a property of the shape and normalize this to just
+  // toString().
+  toString() {
+    return `shape ${this.name}
+  ${this.name}(${this._handlesToManifestString()})
+${this._slotsToManifestString()}
+`;
+  }
+
   static fromLiteral(data) {
     let views = data.views.map(view => ({type: _fromLiteral(view.type), name: _fromLiteral(view.name), direction: _fromLiteral(view.direction)}));
     let slots = data.slots.map(slot => ({name: _fromLiteral(slot.name), direction: _fromLiteral(slot.direction), isRequired: _fromLiteral(slot.isRequired), isSet: _fromLiteral(slot.isSet)}));
-    return new Shape(views, slots);
+    return new Shape(data.name, views, slots);
   }
 
   toLiteral() {
     let views = this.views.map(view => ({type: _toLiteral(view.type), name: _toLiteral(view.name), direction: _toLiteral(view.direction)}));
     let slots = this.slots.map(slot => ({name: _toLiteral(slot.name), direction: _toLiteral(slot.direction), isRequired: _toLiteral(slot.isRequired), isSet: _toLiteral(slot.isSet)}));
-    return {views, slots};
+    return {name: this.name, views, slots};
   }
 
   clone() {
     let views = this.views.map(({name, direction, type}) => ({name, direction, type}));
     let slots = this.slots.map(({name, direction, isRequired, isSet}) => ({name, direction, isRequired, isSet}));
-    return new Shape(views, slots);
+    return new Shape(this.name, views, slots);
   }
 
   equals(other) {
@@ -1541,10 +1579,17 @@ class Shape {
     // TODO: direction subsetting?
     if (Shape.mustMatch(shapeView.direction) && shapeView.direction !== particleView.direction)
       return false;
-    // TODO: polymorphism?
-    if (Shape.mustMatch(shapeView.type) && !shapeView.type.equals(particleView.type))
+    if (shapeView.type == undefined)
+      return true;
+    if (shapeView.type.isVariableReference)
       return false;
-    return true;
+    let [left, right] = __WEBPACK_IMPORTED_MODULE_1__type_js__["a" /* default */].unwrapPair(shapeView.type, particleView.type);
+    if (left.isVariable) {
+      return [{var: left, value: right}];
+    } else {
+      return left.equals(right);
+    }
+
   }
 
   static slotsMatch(shapeSlot, particleSlot) {
@@ -1560,7 +1605,20 @@ class Shape {
   }
 
   particleMatches(particleSpec) {
-    let viewMatches = this.views.map(view => particleSpec.connections.filter(connection => Shape.viewsMatch(view, connection)));
+    return this.restrictType(particleSpec) !== false;
+  }
+
+  restrictType(particleSpec) {
+    let newShape = this.clone();
+    return newShape._restrictThis(particleSpec); 
+  }
+
+  _restrictThis(particleSpec) {
+
+    let viewMatches = this.views.map(
+      view => particleSpec.connections.map(connection => ({match: connection, result: Shape.viewsMatch(view, connection)}))
+                                      .filter(a => a.result !== false));
+
     let particleSlots = [];
     particleSpec.slots.forEach(consumedSlot => {
       particleSlots.push({name: consumedSlot.name, direction: 'consume', isRequired: consumedSlot.isRequired, isSet: consumedSlot.isSet});
@@ -1569,25 +1627,39 @@ class Shape {
       });
     });
     let slotMatches = this.slots.map(slot => particleSlots.filter(particleSlot => Shape.slotsMatch(slot, particleSlot)));
+    slotMatches = slotMatches.map(matchList => matchList.map(slot => ({match: slot, result: true})));
 
     let exclusions = [];
 
+    // TODO: this probably doesn't deal with multiple match options.
     function choose(list, exclusions) {
       if (list.length == 0)
-        return true;
+        return [];
       let thisLevel = list.pop();
       for (let connection of thisLevel) {
-        if (exclusions.includes(connection))
+        if (exclusions.includes(connection.match))
           continue;
         let newExclusions = exclusions.slice();
-        newExclusions.push(connection);
-        if (choose(list, newExclusions))
-          return true;
+        newExclusions.push(connection.match);
+        let constraints = choose(list, newExclusions);
+        if (constraints !== false) {
+          return connection.result.length ? constraints.concat(connection.result) : constraints;
+        }
       }
 
       return false;
     }
-    return choose(viewMatches, []) && choose(slotMatches, []);
+    
+    let viewOptions = choose(viewMatches, []);
+    let slotOptions = choose(slotMatches, []);
+
+    if (viewOptions === false || slotOptions === false)
+      return false;
+
+    for (let constraint of viewOptions)
+      constraint.var.variable.resolution = constraint.value;
+
+    return this;
   }
 }
 
@@ -1717,9 +1789,9 @@ class TypeVariable {
 
 "use strict";
 /* WEBPACK VAR INJECTION */(function(global) {/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__type_js__ = __webpack_require__(1);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__handle_js__ = __webpack_require__(26);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__handle_js__ = __webpack_require__(23);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__api_channel_js__ = __webpack_require__(20);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__api_channel_js__ = __webpack_require__(18);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__particle_spec_js__ = __webpack_require__(3);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__schema_js__ = __webpack_require__(4);
 /**
@@ -1997,7 +2069,7 @@ class InnerPEC {
     });
 
     for (let localHandle of handleMap.values()) {
-      let type = localHandle.underlyingView().type;
+      let type = localHandle.underlyingProxy().type;
       let schemaModel;
       if (type.isSetView && type.primitiveType().isEntity) {
         schemaModel = type.primitiveType().entitySchema;
@@ -2049,14 +2121,14 @@ class InnerPEC {
 
 /* harmony default export */ __webpack_exports__["a"] = (InnerPEC);
 
-/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(17)))
+/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(30)))
 
 /***/ }),
 /* 14 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_loader_js__ = __webpack_require__(28);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_loader_js__ = __webpack_require__(25);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__arcs_runtime_particle_js__ = __webpack_require__(7);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__arcs_runtime_dom_particle_js__ = __webpack_require__(6);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__arcs_runtime_transformation_dom_particle_js__ = __webpack_require__(11);
@@ -2257,6 +2329,1224 @@ class JsonldToManifest {
 
 /***/ }),
 /* 16 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_debug_abstract_devtools_channel_js__ = __webpack_require__(19);
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+class ChromeExtensionChannel extends __WEBPACK_IMPORTED_MODULE_0__runtime_debug_abstract_devtools_channel_js__["a" /* default */] {
+  constructor() {
+    super();
+    this._makeReady(); // TODO: Consider readiness if connecting via extension.
+  }
+
+  _flush(messages) {
+    document.dispatchEvent(new CustomEvent('arcs-debug', {detail: messages}));
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = ChromeExtensionChannel;
+
+
+
+/***/ }),
+/* 17 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+/* harmony default export */ __webpack_exports__["a"] = ({});
+
+
+/***/ }),
+/* 18 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* unused harmony export PECOuterPort */
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return PECInnerPort; });
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_spec_js__ = __webpack_require__(3);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__type_js__ = __webpack_require__(1);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__ = __webpack_require__(21);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+
+
+class ThingMapper {
+  constructor(prefix) {
+    this._prefix = prefix;
+    this._nextIdentifier = 0;
+    this._idMap = new Map();
+    this._reverseIdMap = new Map();
+  }
+
+  _newIdentifier() {
+    return this._prefix + (this._nextIdentifier++);
+  }
+
+  createMappingForThing(thing, requestedId) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._reverseIdMap.has(thing));
+    let id;
+    if (requestedId) {
+      id = requestedId;
+    } else if (thing.apiChannelMappingId) {
+      id = thing.apiChannelMappingId;
+    } else {
+      id = this._newIdentifier();
+    }
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._idMap.has(id), `${requestedId ? 'requestedId' : (thing.apiChannelMappingId ? 'apiChannelMappingId' : 'newIdentifier()')} ${id} already in use`);
+    this.establishThingMapping(id, thing);
+    return id;
+  }
+
+  maybeCreateMappingForThing(thing) {
+    if (this.hasMappingForThing(thing)) {
+      return this.identifierForThing(thing);
+    }
+    return this.createMappingForThing(thing);
+  }
+
+  async establishThingMapping(id, thing) {
+    let continuation;
+    if (Array.isArray(thing)) {
+      [thing, continuation] = thing;
+    }
+    this._idMap.set(id, thing);
+    if (thing instanceof Promise) {
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(continuation == null);
+      await this.establishThingMapping(id, await thing);
+    } else {
+      this._reverseIdMap.set(thing, id);
+      if (continuation) {
+        await continuation();
+      }
+    }
+  }
+
+  hasMappingForThing(thing) {
+    return this._reverseIdMap.has(thing);
+  }
+
+  identifierForThing(thing) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._reverseIdMap.has(thing), `Missing thing ${thing}`);
+    return this._reverseIdMap.get(thing);
+  }
+
+  thingForIdentifier(id) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._idMap.has(id), `Missing id: ${id}`);
+    return this._idMap.get(id);
+  }
+}
+
+
+class APIPort {
+  constructor(messagePort, prefix) {
+    this._port = messagePort;
+    this._mapper = new ThingMapper(prefix);
+    this._messageMap = new Map();
+    this._port.onmessage = async e => this._handle(e);
+    this._debugAttachment = null;
+    this.messageCount = 0;
+
+    this.Direct = {
+      convert: a => a,
+      unconvert: a => a
+    };
+
+    this.Stringify = {
+      convert: a => a.toString(),
+      unconvert: a => eval(a)
+    };
+
+    this.LocalMapped = {
+      convert: a => this._mapper.maybeCreateMappingForThing(a),
+      unconvert: a => this._mapper.thingForIdentifier(a)
+    };
+
+    this.Mapped = {
+      convert: a => this._mapper.identifierForThing(a),
+      unconvert: a => this._mapper.thingForIdentifier(a)
+    };
+
+    this.Dictionary = function(primitive) {
+      return {
+        convert: a => {
+          let r = {};
+          for (let key in a) {
+            r[key] = primitive.convert(a[key]);
+          }
+          return r;
+        }
+      };
+    };
+
+    this.Map = function(keyprimitive, valueprimitive) {
+      return {
+        convert: a => {
+          let r = {};
+          a.forEach((value, key) => r[keyprimitive.convert(key)] = valueprimitive.convert(value));
+          return r;
+        },
+        unconvert: a => {
+          let r = new Map();
+          for (let key in a)
+            r.set(keyprimitive.unconvert(key), valueprimitive.unconvert(a[key]));
+          return r;
+        }
+      };
+    };
+
+    this.List = function(primitive) {
+      return {
+        convert: a => a.map(v => primitive.convert(v)),
+        unconvert: a => a.map(v => primitive.unconvert(v))
+      };
+    };
+
+    this.ByLiteral = function(clazz) {
+      return {
+        convert: a => a.toLiteral(),
+        unconvert: a => clazz.fromLiteral(a)
+      };
+    };
+  }
+
+  close() {
+    this._port.close();
+  }
+
+  async _handle(e) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._messageMap.has(e.data.messageType));
+
+    this.messageCount++;
+
+    let handler = this._messageMap.get(e.data.messageType);
+    let args;
+    try {
+      args = this._unprocessArguments(handler.args, e.data.messageBody);
+    } catch (exc) {
+      console.error(`Exception during unmarshaling for ${e.data.messageType}`);
+      throw exc;
+    }
+    // If any of the converted arguments are still pending promises
+    // wait for them to complete before processing the message.
+    for (let arg of Object.values(args)) {
+      if (arg instanceof Promise) {
+        arg.then(() => this._handle(e));
+        return;
+      }
+    }
+    let handlerName = 'on' + e.data.messageType;
+    let result = this[handlerName](args);
+    if (this._debugAttachment && this._debugAttachment[handlerName]) {
+      this._debugAttachment[handlerName](args);
+    }
+    if (handler.isInitializer) {
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(args.identifier);
+      await this._mapper.establishThingMapping(args.identifier, result);
+    }
+  }
+
+  _processArguments(argumentTypes, args) {
+    let messageBody = {};
+    for (let argument in argumentTypes)
+      messageBody[argument] = argumentTypes[argument].convert(args[argument]);
+    return messageBody;
+  }
+
+  _unprocessArguments(argumentTypes, args) {
+    let messageBody = {};
+    for (let argument in argumentTypes)
+      messageBody[argument] = argumentTypes[argument].unconvert(args[argument]);
+    return messageBody;
+  }
+
+  registerCall(name, argumentTypes) {
+    this[name] = args => {
+      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
+      this._port.postMessage(call);
+      if (this._debugAttachment && this._debugAttachment[name]) {
+        this._debugAttachment[name](args);
+      }
+    };
+  }
+
+  registerHandler(name, argumentTypes) {
+    this._messageMap.set(name, {args: argumentTypes});
+  }
+
+  registerInitializerHandler(name, argumentTypes) {
+    argumentTypes.identifier = this.Direct;
+    this._messageMap.set(name, {
+      isInitializer: true,
+      args: argumentTypes,
+    });
+  }
+
+  registerRedundantInitializer(name, argumentTypes, mappingIdArg) {
+    this.registerInitializer(name, argumentTypes, mappingIdArg, true /* redundant */);
+  }
+
+  registerInitializer(name, argumentTypes, mappingIdArg = null, redundant = false) {
+    this[name] = (thing, args) => {
+      if (redundant && this._mapper.hasMappingForThing(thing)) return;
+      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
+      let requestedId = mappingIdArg && args[mappingIdArg];
+      call.messageBody.identifier = this._mapper.createMappingForThing(thing, requestedId);
+      this._port.postMessage(call);
+      if (this._debugAttachment && this._debugAttachment[name]) {
+        this._debugAttachment[name](thing, args);
+      }
+    };
+  }
+
+  initDebug(arcId) {
+    if (!this._debugAttachment) this._debugAttachment = new __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__["a" /* default */](arcId);
+  }
+}
+
+class PECOuterPort extends APIPort {
+  constructor(messagePort) {
+    super(messagePort, 'o');
+
+    this.registerCall('Stop', {});
+    this.registerCall('DefineParticle',
+      {particleDefinition: this.Direct, particleFunction: this.Stringify});
+    this.registerRedundantInitializer('DefineHandle', {type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
+    this.registerInitializer('InstantiateParticle',
+      {id: this.Direct, spec: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_1__particle_spec_js__["a" /* default */]), handles: this.Map(this.Direct, this.Mapped)}, 'id');
+
+    this.registerCall('UIEvent', {particle: this.Mapped, slotName: this.Direct, event: this.Direct});
+    this.registerCall('SimpleCallback', {callback: this.Direct, data: this.Direct});
+    this.registerCall('AwaitIdle', {version: this.Direct});
+    this.registerCall('StartRender', {particle: this.Mapped, slotName: this.Direct, contentTypes: this.List(this.Direct)});
+    this.registerCall('StopRender', {particle: this.Mapped, slotName: this.Direct});
+
+    this.registerHandler('Render', {particle: this.Mapped, slotName: this.Direct, content: this.Direct});
+    this.registerHandler('Synchronize', {handle: this.Mapped, target: this.Mapped,
+                                    type: this.Direct, callback: this.Direct,
+                                    modelCallback: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleGet', {handle: this.Mapped, callback: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleToList', {handle: this.Mapped, callback: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleSet', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleStore', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleRemove', {handle: this.Mapped, data: this.Direct});
+    this.registerHandler('HandleClear', {handle: this.Mapped, particleId: this.Direct});
+    this.registerHandler('Idle', {version: this.Direct, relevance: this.Map(this.Mapped, this.Direct)});
+
+    this.registerHandler('ConstructInnerArc', {callback: this.Direct, particle: this.Mapped});
+    this.registerCall('ConstructArcCallback', {callback: this.Direct, arc: this.LocalMapped});
+
+    this.registerHandler('ArcCreateHandle', {callback: this.Direct, arc: this.LocalMapped, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
+    this.registerInitializer('CreateHandleCallback', {callback: this.Direct, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct, id: this.Direct});
+
+    this.registerHandler('ArcMapHandle', {callback: this.Direct, arc: this.LocalMapped, handle: this.Mapped});
+    this.registerInitializer('MapHandleCallback', {callback: this.Direct, id: this.Direct});
+
+    this.registerHandler('ArcCreateSlot',
+      {callback: this.Direct, arc: this.LocalMapped, transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedParticleName: this.Direct, hostedSlotName: this.Direct});
+    this.registerInitializer('CreateSlotCallback', {callback: this.Direct, hostedSlotId: this.Direct});
+    this.registerCall('InnerArcRender', {transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedSlotId: this.Direct, content: this.Direct});
+
+    this.registerHandler('ArcLoadRecipe', {arc: this.LocalMapped, recipe: this.Direct, callback: this.Direct});
+  }
+}
+
+class PECInnerPort extends APIPort {
+  constructor(messagePort) {
+    super(messagePort, 'i');
+
+    this.registerHandler('Stop', {});
+    // particleFunction needs to be eval'd in context or it won't work.
+    this.registerHandler('DefineParticle',
+      {particleDefinition: this.Direct, particleFunction: this.Direct});
+    this.registerInitializerHandler('DefineHandle', {type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
+    this.registerInitializerHandler('InstantiateParticle',
+      {id: this.Direct, spec: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_1__particle_spec_js__["a" /* default */]), handles: this.Map(this.Direct, this.Mapped)});
+
+    this.registerHandler('UIEvent', {particle: this.Mapped, slotName: this.Direct, event: this.Direct});
+    this.registerHandler('SimpleCallback', {callback: this.LocalMapped, data: this.Direct});
+    this.registerHandler('AwaitIdle', {version: this.Direct});
+    this.registerHandler('StartRender', {particle: this.Mapped, slotName: this.Direct, contentTypes: this.Direct});
+    this.registerHandler('StopRender', {particle: this.Mapped, slotName: this.Direct});
+
+    this.registerCall('Render', {particle: this.Mapped, slotName: this.Direct, content: this.Direct});
+    this.registerCall('Synchronize', {handle: this.Mapped, target: this.Mapped,
+                                 type: this.Direct, callback: this.LocalMapped,
+                                 modelCallback: this.LocalMapped, particleId: this.Direct});
+    this.registerCall('HandleGet', {handle: this.Mapped, callback: this.LocalMapped, particleId: this.Direct});
+    this.registerCall('HandleToList', {handle: this.Mapped, callback: this.LocalMapped, particleId: this.Direct});
+    this.registerCall('HandleSet', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
+    this.registerCall('HandleStore', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
+    this.registerCall('HandleRemove', {handle: this.Mapped, data: this.Direct});
+    this.registerCall('HandleClear', {handle: this.Mapped, particleId: this.Direct});
+    this.registerCall('Idle', {version: this.Direct, relevance: this.Map(this.Mapped, this.Direct)});
+
+    this.registerCall('ConstructInnerArc', {callback: this.LocalMapped, particle: this.Mapped});
+    this.registerHandler('ConstructArcCallback', {callback: this.LocalMapped, arc: this.Direct});
+
+    this.registerCall('ArcCreateHandle', {callback: this.LocalMapped, arc: this.Direct, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
+    this.registerInitializerHandler('CreateHandleCallback', {callback: this.LocalMapped, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct, id: this.Direct});
+    this.registerCall('ArcMapHandle', {callback: this.LocalMapped, arc: this.Direct, handle: this.Mapped});
+    this.registerInitializerHandler('MapHandleCallback', {callback: this.LocalMapped, id: this.Direct});
+    this.registerCall('ArcCreateSlot',
+      {callback: this.LocalMapped, arc: this.Direct, transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedParticleName: this.Direct, hostedSlotName: this.Direct});
+    this.registerInitializerHandler('CreateSlotCallback', {callback: this.LocalMapped, hostedSlotId: this.Direct});
+    this.registerHandler('InnerArcRender', {transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedSlotId: this.Direct, content: this.Direct});
+
+    this.registerCall('ArcLoadRecipe', {arc: this.Direct, recipe: this.Direct, callback: this.LocalMapped});
+  }
+}
+
+
+/* unused harmony default export */ var _unused_webpack_default_export = ({PECOuterPort, PECInnerPort});
+
+
+/***/ }),
+/* 19 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+class AbstractDevtoolsChannel {
+  constructor() {
+    this.debouncedMessages = [];
+    this.debouncing = false;
+    this.ready = new Promise((resolve, reject) => {
+      this._makeReady = resolve;
+    });
+  }
+
+  send(message) {
+    this.debouncedMessages.push(message);
+    if (!this.debouncing) {
+      this.debouncing = true;
+      setTimeout(() => {
+        this._flush(this.debouncedMessages);
+        this.debouncedMessages = [];
+        this.debouncing = false;
+      }, 100);
+    }
+  }
+
+  _flush(messages) {
+    throw 'Not implemented in an abstract class';
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = AbstractDevtoolsChannel;
+
+
+
+/***/ }),
+/* 20 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__ = __webpack_require__(16);
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+let instance = null;
+/* harmony default export */ __webpack_exports__["a"] = ({
+  get: () => {
+    if (!instance) instance = new __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__["a" /* default */]();
+    return instance;
+  }
+});
+
+
+/***/ }),
+/* 21 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__ = __webpack_require__(20);
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+ 
+
+
+
+class OuterPortAttachment {
+  constructor(arcId) {
+    this._arcId = arcId;
+    this._callbackRegistry = {};
+    this._particleRegistry = {};
+  }
+
+  InstantiateParticle(particle, {id, spec, handles}) {
+    this._particleRegistry[id] = spec;
+  }
+
+  SimpleCallback({callback, data}) {
+    let callbackDetails = this._callbackRegistry[callback];
+    if (callbackDetails) {
+      // Copying callback data, as the callback can be used multiple times.
+      this._sendMessage(Object.assign({}, callbackDetails), data);
+    }
+  }
+
+  onSynchronize({handle, target, callback, modelCallback, type, particleId}) {
+    this._callbackRegistry[callback] = this._describeHandleCall(
+      {operation: `on-${type}`, handle, particleId});
+    this._callbackRegistry[modelCallback] = this._describeHandleCall(
+      {operation: 'sync-model', handle, particleId});
+  }
+
+  onHandleGet({handle, callback, particleId}) {
+    this._callbackRegistry[callback] = this._describeHandleCall(
+      {operation: 'get', handle, particleId});
+  }
+
+  onHandleToList({handle, callback, particleId}) {
+    this._callbackRegistry[callback] = this._describeHandleCall(
+      {operation: 'toList', handle, particleId});
+  }
+
+  onHandleSet({handle, data, particleId}) {
+    this._logHandleCall({operation: 'set', handle, data, particleId});
+  }
+
+  onHandleStore({handle, data, particleId}) {
+    this._logHandleCall({operation: 'store', handle, data, particleId});
+  }
+
+  onHandleClear({handle, particleId}) {
+    this._logHandleCall({operation: 'clear', handle, particleId});
+  }
+
+  onHandleRemove({handle, data, particleId}) {
+    this._logHandleCall({operation: 'remove', handle, data, particleId});
+  }
+
+  _logHandleCall(args) {
+    this._sendMessage(this._describeHandleCall(args), args.data);
+  }
+
+  _sendMessage(messageBody, data) {
+    messageBody.data = JSON.stringify(data);
+    messageBody.timestamp = Date.now();
+    __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__["a" /* default */].get().send({messageType: 'dataflow', messageBody});
+  }
+
+  _describeHandleCall({operation, handle, particleId}) {
+    return {
+      arcId: this._arcId,
+      operation,
+      particle: this._describeParticle(particleId),
+      handle: this._describeHandle(handle)
+    };
+  }
+
+  _describeParticle(id) {
+    let particleSpec = this._particleRegistry[id];
+    return {
+      id,
+      name: particleSpec && particleSpec.name
+      // TODO: Send entire spec only once and refer to it by ID in the tool.
+    };
+  }
+
+  _describeHandle(handle) {
+    return {
+      id: handle.id,
+      storageKey: handle._storageKey,
+      name: handle.name,
+      description: handle.description,
+      type: this._describeHandleType(handle._type)
+    };
+  }
+
+  // TODO: This is fragile and incomplete. Change this into sending entire
+  //       handle object once and refer back to it via its ID in the tool.
+  _describeHandleType(handleType) {
+    switch (handleType.constructor.name) {
+      case 'Type':
+        switch (handleType.tag) {
+          case 'SetView': return `[${this._describeHandleType(handleType.data)}]`;
+          case 'Entity': return this._describeHandleType(handleType.data);
+          default: return `${handleType.tag} ${this._describeHandleType(handleType.data)}`;
+        }
+      case 'Schema':
+        return handleType.name;
+      case 'Shape':
+        return 'Shape';
+    }
+    return '';
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = OuterPortAttachment;
+
+
+
+/***/ }),
+/* 22 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+/* harmony default export */ __webpack_exports__["a"] = (fetch);
+
+
+/***/ }),
+/* 23 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__identifier_js__ = __webpack_require__(24);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__entity_js__ = __webpack_require__(2);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__relation_js__ = __webpack_require__(9);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__symbols_js__ = __webpack_require__(5);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__particle_spec_js__ = __webpack_require__(3);
+/** @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+
+let identifier = __WEBPACK_IMPORTED_MODULE_3__symbols_js__["a" /* default */].identifier;
+
+
+
+// TODO: This won't be needed once runtime is transferred between contexts.
+function cloneData(data) {
+  return data;
+  //return JSON.parse(JSON.stringify(data));
+}
+
+function restore(entry, entityClass) {
+  let {id, rawData} = entry;
+  let entity = new entityClass(cloneData(rawData));
+  if (entry.id) {
+    entity.identify(entry.id);
+  }
+
+  // TODO some relation magic, somewhere, at some point.
+
+  return entity;
+}
+
+/** @class Handle
+ * Base class for Collections and Variables.
+ */
+class Handle {
+  constructor(proxy, particleId, canRead, canWrite) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(!(proxy instanceof Handle));
+    this._proxy = proxy;
+    this.canRead = canRead;
+    this.canWrite = canWrite;
+    this._particleId = particleId;
+  }
+  underlyingProxy() {
+    return this._proxy;
+  }
+  /** @method on(kind, callback, target)
+   * Register for callbacks every time the requested kind of event occurs.
+   * Events are grouped into delivery sets by target, which should therefore
+   * be the recieving particle.
+   */
+  on(kind, callback, target) {
+    return this._proxy.on(kind, callback, target, this._particleId);
+  }
+
+  synchronize(kind, modelCallback, callback, target) {
+    return this._proxy.synchronize(kind, modelCallback, callback, target, this._particleId);
+  }
+
+  generateID() {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this._proxy.generateID);
+    return this._proxy.generateID();
+  }
+
+  generateIDComponents() {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this._proxy.generateIDComponents);
+    return this._proxy.generateIDComponents();
+  }
+
+  _serialize(entity) {
+    if (!entity.isIdentified())
+      entity.createIdentity(this.generateIDComponents());
+    let id = entity[identifier];
+    let rawData = entity.dataClone();
+    return {
+      id,
+      rawData
+    };
+  }
+
+  _restore(entry) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this.entityClass, 'Handles need entity classes for deserialization');
+    return restore(entry, this.entityClass);
+  }
+
+  get type() {
+    return this._proxy._type;
+  }
+  get name() {
+    return this._proxy.name;
+  }
+
+  get _id() {
+    return this._proxy._id;
+  }
+
+  toManifestString() {
+    return `'${this._id}'`;
+  }
+}
+
+/** @class Collection
+ * A handle on a set of Entity data. Note that, as a set, a Collection can only
+ * contain a single version of an Entity for each given ID. Further, no order is
+ * implied by the set. A particle's manifest dictates the types of handles that
+ * need to be connected to that particle, and the current recipe identifies
+ * which handles are connected.
+ */
+class Collection extends Handle {
+  constructor(proxy, particleId, canRead, canWrite) {
+    // TODO: this should talk to an API inside the PEC.
+    super(proxy, particleId, canRead, canWrite);
+  }
+  query() {
+    // TODO: things
+  }
+  /** @method async toList()
+   * Returns a list of the Entities contained by the handle.
+   * throws: Error if this handle is not configured as a readable handle (i.e. 'in' or 'inout')
+     in the particle's manifest.
+   */
+  async toList() {
+    // TODO: remove this and use query instead
+    if (!this.canRead)
+      throw new Error('Handle not readable');
+    return (await this._proxy.toList(this._particleId)).map(a => this._restore(a));
+  }
+
+  /** @method store(entity)
+   * Stores a new entity into the Handle.
+   * throws: Error if this handle is not configured as a writeable handle (i.e. 'out' or 'inout')
+     in the particle's manifest.
+   */
+  async store(entity) {
+    if (!this.canWrite)
+      throw new Error('Handle not writeable');
+    let serialization = this._serialize(entity);
+    return this._proxy.store(serialization, this._particleId);
+  }
+
+  /** @method remove(entity)
+   * Removes an entity from the Handle.
+   * throws: Error if this handle is not configured as a writeable handle (i.e. 'out' or 'inout')
+     in the particle's manifest.
+   */
+  async remove(entity) {
+    if (!this.canWrite)
+      throw new Error('View not writeable');
+    let serialization = this._serialize(entity);
+    return this._proxy.remove(serialization.id, this._particleId);
+  }
+}
+
+/** @class Variable
+ * A handle on a single entity. A particle's manifest dictates
+ * the types of handles that need to be connected to that particle, and
+ * the current recipe identifies which handles are connected.
+ */
+class Variable extends Handle {
+  constructor(variable, canRead, canWrite, particleId) {
+    super(variable, canRead, canWrite, particleId);
+  }
+
+  /** @method async get()
+  * Returns the Entity contained by the Variable, or undefined if the Variable
+  * is cleared.
+  * throws: Error if this variable is not configured as a readable handle (i.e. 'in' or 'inout')
+    in the particle's manifest.
+   */
+  async get() {
+    if (!this.canRead)
+      throw new Error('View not readable');
+    let result = await this._proxy.get(this._particleId);
+    if (result == null)
+      return undefined;
+    if (this.type.isEntity)
+      return this._restore(result);
+    if (this.type.isInterface)
+      return __WEBPACK_IMPORTED_MODULE_5__particle_spec_js__["a" /* default */].fromLiteral(result);
+    return result;
+  }
+
+  /** @method set(entity)
+   * Stores a new entity into the Variable, replacing any existing entity.
+   * throws: Error if this variable is not configured as a writeable handle (i.e. 'out' or 'inout')
+     in the particle's manifest.
+   */
+  async set(entity) {
+    if (!this.canWrite)
+      throw new Error('View not writeable');
+    return this._proxy.set(this._serialize(entity), this._particleId);
+  }
+
+  /** @method clear()
+   * Clears any entity currently in the Variable.
+   * throws: Error if this variable is not configured as a writeable handle (i.e. 'out' or 'inout')
+     in the particle's manifest.
+   */
+  async clear() {
+    if (!this.canWrite)
+      throw new Error('View not writeable');
+    await this._proxy.clear(this._particleId);
+  }
+}
+
+function handleFor(proxy, isSet, particleId, canRead = true, canWrite = true) {
+  return (isSet || (isSet == undefined && proxy.type.isSetView))
+      ? new Collection(proxy, particleId, canRead, canWrite)
+      : new Variable(proxy, particleId, canRead, canWrite);
+}
+
+/* harmony default export */ __webpack_exports__["a"] = ({handleFor});
+
+
+/***/ }),
+/* 24 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__type_js__ = __webpack_require__(1);
+// @license
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+
+
+
+
+// TODO: relation identifier should incorporate key/value identifiers
+class Identifier {
+  constructor(view, type, key) {
+    this.view = type;
+    this.type = type;
+    this.key = key;
+  }
+  toLiteral() {
+    return [this.view, this.type.toLiteral(), this.key];
+  }
+  static fromLiteral(data) {
+    let [view, literalType, key] = data;
+    return new Identifier(view, __WEBPACK_IMPORTED_MODULE_1__type_js__["a" /* default */].fromLiteral(literalType), key);
+  }
+}
+
+/* unused harmony default export */ var _unused_webpack_default_export = (Identifier);
+
+
+/***/ }),
+/* 25 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_fs_web_js__ = __webpack_require__(8);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_vm_web_js__ = __webpack_require__(17);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__fetch_web_js__ = __webpack_require__(22);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__particle_js__ = __webpack_require__(7);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__dom_particle_js__ = __webpack_require__(6);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__transformation_dom_particle_js__ = __webpack_require__(11);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__converters_jsonldToManifest_js__ = __webpack_require__(15);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+
+
+
+
+
+function schemaLocationFor(name) {
+  return `../entities/${name}.schema`;
+}
+
+class Loader {
+  path(fileName) {
+    let path = fileName.replace(/[\/][^\/]+$/, '/');
+    return path;
+  }
+
+  join(prefix, path) {
+    if (/^https?:\/\//.test(path))
+      return path;
+    // TODO: replace this with something that isn't hacky
+    if (path[0] == '/' || path[1] == ':')
+      return path;
+    prefix = this.path(prefix);
+    return prefix + path;
+  }
+
+  loadResource(file) {
+    if (/^https?:\/\//.test(file))
+      return this._loadURL(file);
+    return this._loadFile(file);
+  }
+
+  _loadFile(file) {
+    return new Promise((resolve, reject) => {
+      __WEBPACK_IMPORTED_MODULE_0__platform_fs_web_js__["a" /* default */].readFile(file, (err, data) => {
+        if (err)
+          reject(err);
+        else
+          resolve(data.toString('utf-8'));
+      });
+    });
+  }
+
+  _loadURL(url) {
+    if (/\/\/schema.org\//.test(url)) {
+      if (url.endsWith('/Thing')) {
+        return __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__fetch_web_js__["a" /* default */])('https://schema.org/Product.jsonld').then(res => res.text()).then(data => __WEBPACK_IMPORTED_MODULE_7__converters_jsonldToManifest_js__["a" /* default */].convert(data, {'@id': 'schema:Thing'}));
+      }
+      return __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__fetch_web_js__["a" /* default */])(url + '.jsonld').then(res => res.text()).then(data => __WEBPACK_IMPORTED_MODULE_7__converters_jsonldToManifest_js__["a" /* default */].convert(data));
+    }
+    return __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__fetch_web_js__["a" /* default */])(url).then(res => res.text());
+  }
+
+  async loadParticleClass(spec) {
+    let clazz = await this.requireParticle(spec.implFile);
+    clazz.spec = spec;
+    return clazz;
+  }
+
+  async requireParticle(fileName) {
+    let src = await this.loadResource(fileName);
+    // Note. This is not real isolation.
+    let script = new __WEBPACK_IMPORTED_MODULE_1__platform_vm_web_js__["a" /* default */].Script(src, {filename: fileName, displayErrors: true});
+    let result = [];
+    let self = {
+      defineParticle(particleWrapper) {
+        result.push(particleWrapper);
+      },
+      console,
+      importScripts: s => null //console.log(`(skipping browser-space import for [${s}])`)
+    };
+    script.runInNewContext(self, {filename: fileName, displayErrors: true});
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_3__platform_assert_web_js__["a" /* default */])(result.length > 0 && typeof result[0] == 'function', `Error while instantiating particle implementation from ${fileName}`);
+    return this.unwrapParticle(result[0]);
+  }
+
+  unwrapParticle(particleWrapper) {
+    return particleWrapper({particle: __WEBPACK_IMPORTED_MODULE_4__particle_js__["a" /* default */], Particle: __WEBPACK_IMPORTED_MODULE_4__particle_js__["a" /* default */].Particle, DomParticle: __WEBPACK_IMPORTED_MODULE_5__dom_particle_js__["a" /* default */], TransformationDomParticle: __WEBPACK_IMPORTED_MODULE_6__transformation_dom_particle_js__["a" /* default */]});
+  }
+
+}
+
+/* harmony default export */ __webpack_exports__["a"] = (Loader);
+
+
+/***/ }),
+/* 26 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__symbols_js__ = __webpack_require__(5);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__entity_js__ = __webpack_require__(2);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__schema_js__ = __webpack_require__(4);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__type_js__ = __webpack_require__(1);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__relation_js__ = __webpack_require__(9);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+
+
+
+function testEntityClass(type) {
+  return new __WEBPACK_IMPORTED_MODULE_3__schema_js__["a" /* default */]({
+    name: type,
+    sections: [{
+      sectionType: 'normative',
+      fields: {'id': 'Number', 'value': 'Text'}
+    }],
+    parents: [],
+  }).entityClass();
+}
+
+let BasicEntity = testEntityClass('BasicEntity');
+
+/* unused harmony default export */ var _unused_webpack_default_export = ({
+  Entity: __WEBPACK_IMPORTED_MODULE_2__entity_js__["a" /* default */],
+  BasicEntity,
+  Relation: __WEBPACK_IMPORTED_MODULE_5__relation_js__["a" /* default */],
+  testing: {
+    testEntityClass,
+  },
+  internals: {
+    identifier: __WEBPACK_IMPORTED_MODULE_1__symbols_js__["a" /* default */].identifier,
+    Type: __WEBPACK_IMPORTED_MODULE_4__type_js__["a" /* default */],
+  }
+});
+
+
+/***/ }),
+/* 27 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+class TupleFields {
+  constructor(fieldList) {
+    this.fieldList = fieldList;
+  }
+
+  static fromLiteral(literal) {
+    return new TupleFields(literal.map(a => Type.fromLiteral(a)));
+  }
+
+  toLiteral() {
+    return this.fieldList.map(a => a.toLiteral());
+  }
+
+  clone() {
+    return new TupleFields(this.fieldList.map(a => a.clone()));
+  }
+
+  equals(other) {
+    if (this.fieldList.length !== other.fieldList.length)
+      return false;
+    for (let i = 0; i < this.fieldList.length; i++) {
+      if (!this.fieldList[i].equals(other.fieldList[i]))
+        return false;
+    }
+    return true;
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = TupleFields;
+
+
+/***/ }),
+/* 28 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+const nob = () => Object.create(null);
+
+/* harmony default export */ __webpack_exports__["a"] = (Base => class extends Base {
+  constructor() {
+    super();
+    this._pendingProps = nob();
+    this._props = this._getInitialProps() || nob();
+    this._lastProps = nob();
+    this._state = this._getInitialState() || nob();
+    this._lastState = nob();
+  }
+  _getInitialProps() {
+  }
+  _getInitialState() {
+  }
+  _getProperty(name) {
+    return this._pendingProps[name] || this._props[name];
+  }
+  _setProperty(name, value) {
+    // dirty checking opportunity
+    if (this._validator || this._wouldChangeProp(name, value)) {
+      this._pendingProps[name] = value;
+      this._invalidateProps();
+    }
+  }
+  _wouldChangeProp(name, value) {
+    return (typeof value === 'object') || (this._props[name] !== value);
+  }
+  _setProps(props) {
+    // TODO(sjmiles): should this be a replace instead of a merge?
+    Object.assign(this._pendingProps, props);
+    this._invalidateProps();
+  }
+  _invalidateProps() {
+    this._propsInvalid = true;
+    this._invalidate();
+  }
+  _setState(state) {
+    Object.assign(this._state, state);
+    this._invalidate();
+  }
+  _async(fn) {
+    // TODO(sjmiles): SystemJS throws unless `Promise` is `window.Promise`
+    return Promise.resolve().then(fn.bind(this));
+    //return setTimeout(fn.bind(this), 10);
+  }
+  _invalidate() {
+    if (!this._validator) {
+      //this._log('register _async validate');
+      //console.log(this.localName + (this.id ? '#' + this.id : '') + ': invalidated');
+      this._validator = this._async(this._validate);
+    }
+  }
+  _validate() {
+    // try..catch to ensure we nullify `validator` before return
+    try {
+      // TODO(sjmiles): should this be a replace instead of a merge?
+      Object.assign(this._props, this._pendingProps);
+      if (this._propsInvalid) {
+        // TODO(sjmiles): should/can have different timing from rendering?
+        this._willReceiveProps(this._props, this._state, this._lastProps, this._lastState);
+        this._propsInvalid = false;
+      }
+      if (this._shouldUpdate(this._props, this._state, this._lastProps, this._lastState)) {
+        // TODO(sjmiles): consider throttling render to rAF
+        this._ensureMount();
+        this._update(this._props, this._state, this._lastProps, this._lastState);
+      }
+    } catch (x) {
+      console.error(x);
+    }
+    // nullify validator _after_ methods so state changes don't reschedule validation
+    // TODO(sjmiles): can/should there ever be state changes fom inside _update()? In React no, in Xen yes (until I have a good reason not too).
+    this._validator = null;
+    // save the old props and state
+    // TODO(sjmiles): don't need to create these for default _shouldUpdate
+    this._lastProps = Object.assign(nob(), this._props);
+    this._lastState = Object.assign(nob(), this._state);
+    this._didUpdate(this._props, this._state, this._lastProps, this._lastState);
+  }
+  _ensureMount() {
+  }
+  _willReceiveProps(props, state) {
+  }
+  /*
+  _willReceiveState(props, state) {
+  }
+  */
+  _shouldUpdate(props, state, lastProps, lastState) {
+    return true;
+  }
+  _update(props, state, lastProps, lastState) {
+  }
+  _didUpdate(props, state, lastProps, lastState) {
+  }
+});
+
+
+/***/ }),
+/* 29 */
 /***/ (function(module, exports) {
 
 // shim for using process in browser
@@ -2446,7 +3736,7 @@ process.umask = function() { return 0; };
 
 
 /***/ }),
-/* 17 */
+/* 30 */
 /***/ (function(module, exports) {
 
 var g;
@@ -2470,1219 +3760,6 @@ try {
 // easier to handle this case. if(!global) { ...}
 
 module.exports = g;
-
-
-/***/ }),
-/* 18 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_debug_abstract_devtools_channel_js__ = __webpack_require__(22);
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-class ChromeExtensionChannel extends __WEBPACK_IMPORTED_MODULE_0__runtime_debug_abstract_devtools_channel_js__["a" /* default */] {
-  constructor() {
-    super();
-    this._makeReady(); // TODO: Consider readiness if connecting via extension.
-  }
-
-  _flush(messages) {
-    document.dispatchEvent(new CustomEvent('arcs-debug', {detail: messages}));
-  }
-}
-/* harmony export (immutable) */ __webpack_exports__["a"] = ChromeExtensionChannel;
-
-
-
-/***/ }),
-/* 19 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-/* harmony default export */ __webpack_exports__["a"] = ({});
-
-
-/***/ }),
-/* 20 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* unused harmony export PECOuterPort */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return PECInnerPort; });
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_spec_js__ = __webpack_require__(3);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__type_js__ = __webpack_require__(1);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__ = __webpack_require__(24);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-
-
-class ThingMapper {
-  constructor(prefix) {
-    this._prefix = prefix;
-    this._nextIdentifier = 0;
-    this._idMap = new Map();
-    this._reverseIdMap = new Map();
-  }
-
-  _newIdentifier() {
-    return this._prefix + (this._nextIdentifier++);
-  }
-
-  createMappingForThing(thing) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._reverseIdMap.has(thing));
-    let id = this._newIdentifier();
-    this.establishThingMapping(id, thing);
-    return id;
-  }
-
-  maybeCreateMappingForThing(thing) {
-    if (this.hasMappingForThing(thing)) {
-      return this.identifierForThing(thing);
-    }
-    return this.createMappingForThing(thing);
-  }
-
-  async establishThingMapping(id, thing) {
-    let continuation;
-    if (Array.isArray(thing)) {
-      [thing, continuation] = thing;
-    }
-    this._idMap.set(id, thing);
-    if (thing instanceof Promise) {
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(continuation == null);
-      await this.establishThingMapping(id, await thing);
-    } else {
-      this._reverseIdMap.set(thing, id);
-      if (continuation) {
-        await continuation();
-      }
-    }
-  }
-
-  hasMappingForThing(thing) {
-    return this._reverseIdMap.has(thing);
-  }
-
-  identifierForThing(thing) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._reverseIdMap.has(thing), `Missing thing ${thing}`);
-    return this._reverseIdMap.get(thing);
-  }
-
-  thingForIdentifier(id) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._idMap.has(id), `Missing id: ${id}`);
-    return this._idMap.get(id);
-  }
-}
-
-
-class APIPort {
-  constructor(messagePort, prefix) {
-    this._port = messagePort;
-    this._mapper = new ThingMapper(prefix);
-    this._messageMap = new Map();
-    this._port.onmessage = async e => this._handle(e);
-    this._debugAttachment = null;
-    this.messageCount = 0;
-
-    this.Direct = {
-      convert: a => a,
-      unconvert: a => a
-    };
-
-    this.Stringify = {
-      convert: a => a.toString(),
-      unconvert: a => eval(a)
-    };
-
-    this.LocalMapped = {
-      convert: a => this._mapper.maybeCreateMappingForThing(a),
-      unconvert: a => this._mapper.thingForIdentifier(a)
-    };
-
-    this.Mapped = {
-      convert: a => this._mapper.identifierForThing(a),
-      unconvert: a => this._mapper.thingForIdentifier(a)
-    };
-
-    this.Dictionary = function(primitive) {
-      return {
-        convert: a => {
-          let r = {};
-          for (let key in a) {
-            r[key] = primitive.convert(a[key]);
-          }
-          return r;
-        }
-      };
-    };
-
-    this.Map = function(keyprimitive, valueprimitive) {
-      return {
-        convert: a => {
-          let r = {};
-          a.forEach((value, key) => r[keyprimitive.convert(key)] = valueprimitive.convert(value));
-          return r;
-        },
-        unconvert: a => {
-          let r = new Map();
-          for (let key in a)
-            r.set(keyprimitive.unconvert(key), valueprimitive.unconvert(a[key]));
-          return r;
-        }
-      };
-    };
-
-    this.List = function(primitive) {
-      return {
-        convert: a => a.map(v => primitive.convert(v)),
-        unconvert: a => a.map(v => primitive.unconvert(v))
-      };
-    };
-
-    this.ByLiteral = function(clazz) {
-      return {
-        convert: a => a.toLiteral(),
-        unconvert: a => clazz.fromLiteral(a)
-      };
-    };
-  }
-
-  close() {
-    this._port.close();
-  }
-
-  async _handle(e) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._messageMap.has(e.data.messageType));
-
-    this.messageCount++;
-
-    let handler = this._messageMap.get(e.data.messageType);
-    let args;
-    try {
-      args = this._unprocessArguments(handler.args, e.data.messageBody);
-    } catch (exc) {
-      console.error(`Exception during unmarshaling for ${e.data.messageType}`);
-      throw exc;
-    }
-    // If any of the converted arguments are still pending promises
-    // wait for them to complete before processing the message.
-    for (let arg of Object.values(args)) {
-      if (arg instanceof Promise) {
-        arg.then(() => this._handle(e));
-        return;
-      }
-    }
-    let handlerName = 'on' + e.data.messageType;
-    let result = this[handlerName](args);
-    if (this._debugAttachment && this._debugAttachment[handlerName]) {
-      this._debugAttachment[handlerName](args);
-    }
-    if (handler.isInitializer) {
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(args.identifier);
-      await this._mapper.establishThingMapping(args.identifier, result);
-    }
-  }
-
-  _processArguments(argumentTypes, args) {
-    let messageBody = {};
-    for (let argument in argumentTypes)
-      messageBody[argument] = argumentTypes[argument].convert(args[argument]);
-    return messageBody;
-  }
-
-  _unprocessArguments(argumentTypes, args) {
-    let messageBody = {};
-    for (let argument in argumentTypes)
-      messageBody[argument] = argumentTypes[argument].unconvert(args[argument]);
-    return messageBody;
-  }
-
-  registerCall(name, argumentTypes) {
-    this[name] = args => {
-      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
-      this._port.postMessage(call);
-      if (this._debugAttachment && this._debugAttachment[name]) {
-        this._debugAttachment[name](args);
-      }
-    };
-  }
-
-  registerHandler(name, argumentTypes) {
-    this._messageMap.set(name, {args: argumentTypes});
-  }
-
-  registerInitializerHandler(name, argumentTypes) {
-    argumentTypes.identifier = this.Direct;
-    this._messageMap.set(name, {
-      isInitializer: true,
-      args: argumentTypes,
-    });
-  }
-
-  registerInitializer(name, argumentTypes) {
-    this[name] = (thing, args) => {
-      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
-      call.messageBody.identifier = this._mapper.createMappingForThing(thing);
-      this._port.postMessage(call);
-      if (this._debugAttachment && this._debugAttachment[name]) {
-        this._debugAttachment[name](thing, args);
-      }
-    };
-  }
-
-  registerRedundantInitializer(name, argumentTypes) {
-    this[name] = (thing, args) => {
-      if (this._mapper.hasMappingForThing(thing))
-        return;
-      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
-      call.messageBody.identifier = this._mapper.createMappingForThing(thing);
-      this._port.postMessage(call);
-      if (this._debugAttachment && this._debugAttachment[name]) {
-        this._debugAttachment[name](thing, args);
-      }
-    };
-  }
-
-  initDebug(arcId) {
-    if (!this._debugAttachment) this._debugAttachment = new __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__["a" /* default */](arcId);
-  }
-}
-
-class PECOuterPort extends APIPort {
-  constructor(messagePort) {
-    super(messagePort, 'o');
-
-    this.registerCall('Stop', {});
-    this.registerCall('DefineParticle',
-      {particleDefinition: this.Direct, particleFunction: this.Stringify});
-    this.registerRedundantInitializer('DefineHandle', {type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
-    this.registerInitializer('InstantiateParticle',
-      {id: this.Direct, spec: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_1__particle_spec_js__["a" /* default */]), handles: this.Map(this.Direct, this.Mapped)});
-
-    this.registerCall('UIEvent', {particle: this.Mapped, slotName: this.Direct, event: this.Direct});
-    this.registerCall('SimpleCallback', {callback: this.Direct, data: this.Direct});
-    this.registerCall('AwaitIdle', {version: this.Direct});
-    this.registerCall('StartRender', {particle: this.Mapped, slotName: this.Direct, contentTypes: this.List(this.Direct)});
-    this.registerCall('StopRender', {particle: this.Mapped, slotName: this.Direct});
-
-    this.registerHandler('Render', {particle: this.Mapped, slotName: this.Direct, content: this.Direct});
-    this.registerHandler('Synchronize', {handle: this.Mapped, target: this.Mapped,
-                                    type: this.Direct, callback: this.Direct,
-                                    modelCallback: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleGet', {handle: this.Mapped, callback: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleToList', {handle: this.Mapped, callback: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleSet', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleStore', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleRemove', {handle: this.Mapped, data: this.Direct});
-    this.registerHandler('HandleClear', {handle: this.Mapped});
-    this.registerHandler('Idle', {version: this.Direct, relevance: this.Map(this.Mapped, this.Direct)});
-
-    this.registerHandler('ConstructInnerArc', {callback: this.Direct, particle: this.Mapped});
-    this.registerCall('ConstructArcCallback', {callback: this.Direct, arc: this.LocalMapped});
-
-    this.registerHandler('ArcCreateHandle', {callback: this.Direct, arc: this.LocalMapped, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
-    this.registerInitializer('CreateHandleCallback', {callback: this.Direct, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct, id: this.Direct});
-
-    this.registerHandler('ArcMapHandle', {callback: this.Direct, arc: this.LocalMapped, handle: this.Mapped});
-    this.registerInitializer('MapHandleCallback', {callback: this.Direct, id: this.Direct});
-
-    this.registerHandler('ArcCreateSlot',
-      {callback: this.Direct, arc: this.LocalMapped, transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedParticleName: this.Direct, hostedSlotName: this.Direct});
-    this.registerInitializer('CreateSlotCallback', {callback: this.Direct, hostedSlotId: this.Direct});
-    this.registerCall('InnerArcRender', {transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedSlotId: this.Direct, content: this.Direct});
-
-    this.registerHandler('ArcLoadRecipe', {arc: this.LocalMapped, recipe: this.Direct, callback: this.Direct});
-  }
-}
-
-class PECInnerPort extends APIPort {
-  constructor(messagePort) {
-    super(messagePort, 'i');
-
-    this.registerHandler('Stop', {});
-    // particleFunction needs to be eval'd in context or it won't work.
-    this.registerHandler('DefineParticle',
-      {particleDefinition: this.Direct, particleFunction: this.Direct});
-    this.registerInitializerHandler('DefineHandle', {type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
-    this.registerInitializerHandler('InstantiateParticle',
-      {id: this.Direct, spec: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_1__particle_spec_js__["a" /* default */]), handles: this.Map(this.Direct, this.Mapped)});
-
-    this.registerHandler('UIEvent', {particle: this.Mapped, slotName: this.Direct, event: this.Direct});
-    this.registerHandler('SimpleCallback', {callback: this.LocalMapped, data: this.Direct});
-    this.registerHandler('AwaitIdle', {version: this.Direct});
-    this.registerHandler('StartRender', {particle: this.Mapped, slotName: this.Direct, contentTypes: this.Direct});
-    this.registerHandler('StopRender', {particle: this.Mapped, slotName: this.Direct});
-
-    this.registerCall('Render', {particle: this.Mapped, slotName: this.Direct, content: this.Direct});
-    this.registerCall('Synchronize', {handle: this.Mapped, target: this.Mapped,
-                                 type: this.Direct, callback: this.LocalMapped,
-                                 modelCallback: this.LocalMapped, particleId: this.Direct});
-    this.registerCall('HandleGet', {handle: this.Mapped, callback: this.LocalMapped, particleId: this.Direct});
-    this.registerCall('HandleToList', {handle: this.Mapped, callback: this.LocalMapped, particleId: this.Direct});
-    this.registerCall('HandleSet', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
-    this.registerCall('HandleStore', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
-    this.registerCall('HandleRemove', {handle: this.Mapped, data: this.Direct});
-    this.registerCall('HandleClear', {handle: this.Mapped});
-    this.registerCall('Idle', {version: this.Direct, relevance: this.Map(this.Mapped, this.Direct)});
-
-    this.registerCall('ConstructInnerArc', {callback: this.LocalMapped, particle: this.Mapped});
-    this.registerHandler('ConstructArcCallback', {callback: this.LocalMapped, arc: this.Direct});
-
-    this.registerCall('ArcCreateHandle', {callback: this.LocalMapped, arc: this.Direct, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
-    this.registerInitializerHandler('CreateHandleCallback', {callback: this.LocalMapped, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct, id: this.Direct});
-    this.registerCall('ArcMapHandle', {callback: this.LocalMapped, arc: this.Direct, handle: this.Mapped});
-    this.registerInitializerHandler('MapHandleCallback', {callback: this.LocalMapped, id: this.Direct});
-    this.registerCall('ArcCreateSlot',
-      {callback: this.LocalMapped, arc: this.Direct, transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedParticleName: this.Direct, hostedSlotName: this.Direct});
-    this.registerInitializerHandler('CreateSlotCallback', {callback: this.LocalMapped, hostedSlotId: this.Direct});
-    this.registerHandler('InnerArcRender', {transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedSlotId: this.Direct, content: this.Direct});
-
-    this.registerCall('ArcLoadRecipe', {arc: this.Direct, recipe: this.Direct, callback: this.LocalMapped});
-  }
-}
-
-
-/* unused harmony default export */ var _unused_webpack_default_export = ({PECOuterPort, PECInnerPort});
-
-
-/***/ }),
-/* 21 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-let nob = () => Object.create(null);
-
-/* harmony default export */ __webpack_exports__["a"] = (Base => class extends Base {
-  constructor() {
-    super();
-    this._pendingProps = nob();
-    this._props = this._getInitialProps() || nob();
-    this._lastProps = nob();
-    this._state = this._getInitialState() || nob();
-    this._lastState = nob();
-  }
-  _getInitialProps() {
-  }
-  _getInitialState() {
-  }
-  _getProperty(name) {
-    return this._pendingProps[name] || this._props[name];
-  }
-  _setProperty(name, value) {
-    // dirty checking opportunity
-    if (this._validator || this._wouldChangeProp(name, value)) {
-      this._pendingProps[name] = value;
-      this._invalidateProps();
-    }
-  }
-  _wouldChangeProp(name, value) {
-    return (typeof value === 'object') || (this._props[name] !== value);
-  }
-  _setProps(props) {
-    // TODO(sjmiles): should this be a replace instead of a merge?
-    Object.assign(this._pendingProps, props);
-    this._invalidateProps();
-  }
-  _invalidateProps() {
-    this._propsInvalid = true;
-    this._invalidate();
-  }
-  _setState(state) {
-    Object.assign(this._state, state);
-    this._invalidate();
-  }
-  _async(fn) {
-    // TODO(sjmiles): SystemJS throws unless `Promise` is `window.Promise`
-    return Promise.resolve().then(fn.bind(this));
-    //return setTimeout(fn.bind(this), 10);
-  }
-  _invalidate() {
-    if (!this._validator) {
-      //this._log('register _async validate');
-      //console.log(this.localName + (this.id ? '#' + this.id : '') + ': invalidated');
-      this._validator = this._async(this._validate);
-    }
-  }
-  _validate() {
-    // try..catch to ensure we nullify `validator` before return
-    try {
-      // TODO(sjmiles): should this be a replace instead of a merge?
-      Object.assign(this._props, this._pendingProps);
-      if (this._propsInvalid) {
-        // TODO(sjmiles): should/can have different timing from rendering?
-        this._willReceiveProps(this._props, this._state, this._lastProps);
-        this._propsInvalid = false;
-      }
-      if (this._shouldUpdate(this._props, this._state, this._lastProps, this._lastState)) {
-        // TODO(sjmiles): consider throttling render to rAF
-        this._ensureMount();
-        this._update(this._props, this._state, this._lastProps);
-      }
-    } catch (x) {
-      console.error(x);
-    }
-    // nullify validator _after_ methods so state changes don't reschedule validation
-    // TODO(sjmiles): can/should there ever be state changes fom inside _update()? In React no, in Xen yes (until I have a good reason not too).
-    this._validator = null;
-    // save the old props and state
-    // TODO(sjmiles): don't need to create these for default _shouldUpdate
-    this._lastProps = Object.assign(nob(), this._props);
-    //this._lastState = Object.assign(nob(), this._state);
-    this._didUpdate(this._props, this._state);
-  }
-  _ensureMount() {
-  }
-  _willReceiveProps(props, state) {
-  }
-  /*
-  _willReceiveState(props, state) {
-  }
-  */
-  _shouldUpdate(props, state, lastProps) {
-    return true;
-  }
-  _update(props, state) {
-  }
-  _didUpdate(props, state) {
-  }
-});
-
-
-/***/ }),
-/* 22 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-class AbstractDevtoolsChannel {
-  constructor() {
-    this.debouncedMessages = [];
-    this.debouncing = false;
-    this.ready = new Promise((resolve, reject) => {
-      this._makeReady = resolve;
-    });
-  }
-
-  send(message) {
-    this.debouncedMessages.push(message);
-    if (!this.debouncing) {
-      this.debouncing = true;
-      setTimeout(() => {
-        this._flush(this.debouncedMessages);
-        this.debouncedMessages = [];
-        this.debouncing = false;
-      }, 100);
-    }
-  }
-
-  _flush(messages) {
-    throw 'Not implemented in an abstract class';
-  }
-}
-/* harmony export (immutable) */ __webpack_exports__["a"] = AbstractDevtoolsChannel;
-
-
-
-/***/ }),
-/* 23 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__ = __webpack_require__(18);
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-let instance = null;
-/* harmony default export */ __webpack_exports__["a"] = ({
-  get: () => {
-    if (!instance) instance = new __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__["a" /* default */]();
-    return instance;
-  }
-});
-
-
-/***/ }),
-/* 24 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__ = __webpack_require__(23);
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
- 
-
-
-
-class OuterPortAttachment {
-  constructor(arcId) {
-    this._arcId = arcId;
-    this._callbackRegistry = {};
-    this._particleRegistry = {};
-  }
-
-  InstantiateParticle(particle, {id, spec, handles}) {
-    this._particleRegistry[id] = spec;
-  }
-
-  SimpleCallback({callback, data}) {
-    let callbackDetails = this._callbackRegistry[callback];
-    if (callbackDetails) {
-      // Copying callback data, as the callback can be used multiple times.
-      this._sendMessage(Object.assign({}, callbackDetails), data);
-    }
-  }
-
-  onSynchronize({handle, target, callback, modelCallback, type, particleId}) {
-    this._callbackRegistry[callback] = this._describeHandleCall(
-      {operation: `on-${type}`, handle, particleId});
-    this._callbackRegistry[modelCallback] = this._describeHandleCall(
-      {operation: 'sync-model', handle, particleId});
-  }
-
-  onHandleGet({handle, callback, particleId}) {
-    this._callbackRegistry[callback] = this._describeHandleCall(
-      {operation: 'get', handle, particleId});
-  }
-
-  onHandleToList({handle, callback, particleId}) {
-    this._callbackRegistry[callback] = this._describeHandleCall(
-      {operation: 'toList', handle, particleId});
-  }
-
-  onHandleSet({handle, data, particleId}) {
-    this._logHandleCall({operation: 'set', handle, data, particleId});
-  }
-
-  onHandleStore({handle, data, particleId}) {
-    this._logHandleCall({operation: 'store', handle, data, particleId});
-  }
-
-  onHandleClear({handle, particleId}) {
-    this._logHandleCall({operation: 'clear', handle, particleId});
-  }
-
-  onHandleRemove({handle, data, particleId}) {
-    this._logHandleCall({operation: 'remove', handle, data, particleId});
-  }
-
-  _logHandleCall(args) {
-    this._sendMessage(this._describeHandleCall(args), args.data);
-  }
-
-  _sendMessage(messageBody, data) {
-    messageBody.data = JSON.stringify(data);
-    messageBody.timestamp = Date.now();
-    __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__["a" /* default */].get().send({messageType: 'dataflow', messageBody});
-  }
-
-  _describeHandleCall({operation, handle, particleId}) {
-    return {
-      arcId: this._arcId,
-      operation,
-      particle: this._describeParticle(particleId),
-      handle: this._describeHandle(handle)
-    };
-  }
-
-  _describeParticle(id) {
-    let particleSpec = this._particleRegistry[id];
-    return {
-      id,
-      name: particleSpec && particleSpec.name
-      // TODO: Send entire spec only once and refer to it by ID in the tool.
-    };
-  }
-
-  _describeHandle(handle) {
-    return {
-      id: handle.id,
-      storageKey: handle._storageKey,
-      name: handle.name,
-      description: handle.description,
-      type: this._describeHandleType(handle._type)
-    };
-  }
-
-  // TODO: This is fragile and incomplete. Change this into sending entire
-  //       handle object once and refer back to it via its ID in the tool.
-  _describeHandleType(handleType) {
-    switch (handleType.constructor.name) {
-      case 'Type':
-        return `${handleType.tag} ${this._describeHandleType(handleType.data)}`;
-      case 'Schema':
-        return handleType.name;
-      case 'Shape':
-        return 'Shape';
-    }
-    return '';
-  }
-}
-/* harmony export (immutable) */ __webpack_exports__["a"] = OuterPortAttachment;
-
-
-
-/***/ }),
-/* 25 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-/* harmony default export */ __webpack_exports__["a"] = (fetch);
-
-
-/***/ }),
-/* 26 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__identifier_js__ = __webpack_require__(27);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__entity_js__ = __webpack_require__(2);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__relation_js__ = __webpack_require__(9);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__symbols_js__ = __webpack_require__(5);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__particle_spec_js__ = __webpack_require__(3);
-/** @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-
-let identifier = __WEBPACK_IMPORTED_MODULE_3__symbols_js__["a" /* default */].identifier;
-
-
-
-// TODO: This won't be needed once runtime is transferred between contexts.
-function cloneData(data) {
-  return data;
-  //return JSON.parse(JSON.stringify(data));
-}
-
-function restore(entry, entityClass) {
-  let {id, rawData} = entry;
-  let entity = new entityClass(cloneData(rawData));
-  if (entry.id) {
-    entity.identify(entry.id);
-  }
-
-  // TODO some relation magic, somewhere, at some point.
-
-  return entity;
-}
-
-/** @class Handle
- * Base class for Views and Variables.
- */
-class Handle {
-  constructor(view, particleId, canRead, canWrite) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(!(view instanceof Handle));
-    this._view = view;
-    this.canRead = canRead;
-    this.canWrite = canWrite;
-    this._particleId = particleId;
-  }
-  underlyingView() {
-    return this._view;
-  }
-  /** @method on(kind, callback, target)
-   * Register for callbacks every time the requested kind of event occurs.
-   * Events are grouped into delivery sets by target, which should therefore
-   * be the recieving particle.
-   */
-  on(kind, callback, target) {
-    return this._view.on(kind, callback, target, this._particleId);
-  }
-
-  synchronize(kind, modelCallback, callback, target) {
-    return this._view.synchronize(kind, modelCallback, callback, target, this._particleId);
-  }
-
-  generateID() {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this._view.generateID);
-    return this._view.generateID();
-  }
-
-  generateIDComponents() {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this._view.generateIDComponents);
-    return this._view.generateIDComponents();
-  }
-
-  _serialize(entity) {
-    if (!entity.isIdentified())
-      entity.createIdentity(this.generateIDComponents());
-    let id = entity[identifier];
-    let rawData = entity.dataClone();
-    return {
-      id,
-      rawData
-    };
-  }
-
-  _restore(entry) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this.entityClass, 'Handles need entity classes for deserialization');
-    return restore(entry, this.entityClass);
-  }
-
-  get type() {
-    return this._view._type;
-  }
-  get name() {
-    return this._view.name;
-  }
-
-  get _id() {
-    return this._view._id;
-  }
-
-  toManifestString() {
-    return `'${this._id}'`;
-  }
-}
-
-/** @class View
- * A handle on a set of Entity data. Note that, as a set, a View can only contain
- * a single version of an Entity for each given ID. Further, no order is implied
- * by the set. A particle's manifest dictates the types of views that need to be
- * connected to that particle, and the current recipe identifies which views are
- * connected.
- */
-class Collection extends Handle {
-  constructor(view, particleId, canRead, canWrite) {
-    // TODO: this should talk to an API inside the PEC.
-    super(view, particleId, canRead, canWrite);
-  }
-  query() {
-    // TODO: things
-  }
-  /** @method async toList()
-   * Returns a list of the Entities contained by the View.
-   * throws: Error if this view is not configured as a readable view (i.e. 'in' or 'inout')
-     in the particle's manifest.
-   */
-  async toList() {
-    // TODO: remove this and use query instead
-    if (!this.canRead)
-      throw new Error('View not readable');
-    return (await this._view.toList(this._particleId)).map(a => this._restore(a));
-  }
-
-  /** @method store(entity)
-   * Stores a new entity into the View.
-   * throws: Error if this view is not configured as a writeable view (i.e. 'out' or 'inout')
-     in the particle's manifest.
-   */
-  async store(entity) {
-    if (!this.canWrite)
-      throw new Error('View not writeable');
-    let serialization = this._serialize(entity);
-    return this._view.store(serialization, this._particleId);
-  }
-
-  /** @method remove(entity)
-   * Removes an entity from the View.
-   * throws: Error if this view is not configured as a writeable view (i.e. 'out' or 'inout')
-     in the particle's manifest.
-   */
-  async remove(entity) {
-    if (!this.canWrite)
-      throw new Error('View not writeable');
-    let serialization = this._serialize(entity);
-    return this._view.remove(serialization.id, this._particleId);
-  }
-}
-
-/** @class Variable
- * A handle on a single entity. A particle's manifest dictates
- * the types of views that need to be connected to that particle, and
- * the current recipe identifies which views are connected.
- */
-class Variable extends Handle {
-  constructor(variable, canRead, canWrite, particleId) {
-    super(variable, canRead, canWrite, particleId);
-  }
-
-  /** @method async get()
-  * Returns the Entity contained by the Variable, or undefined if the Variable
-  * is cleared.
-  * throws: Error if this variable is not configured as a readable view (i.e. 'in' or 'inout')
-    in the particle's manifest.
-   */
-  async get() {
-    if (!this.canRead)
-      throw new Error('View not readable');
-    let result = await this._view.get(this._particleId);
-    if (result == null)
-      return undefined;
-    if (this.type.isEntity)
-      return this._restore(result);
-    if (this.type.isInterface)
-      return __WEBPACK_IMPORTED_MODULE_5__particle_spec_js__["a" /* default */].fromLiteral(result);
-    return result;
-  }
-
-  /** @method set(entity)
-   * Stores a new entity into the Variable, replacing any existing entity.
-   * throws: Error if this variable is not configured as a writeable view (i.e. 'out' or 'inout')
-     in the particle's manifest.
-   */
-  async set(entity) {
-    if (!this.canWrite)
-      throw new Error('View not writeable');
-    return this._view.set(this._serialize(entity), this._particleId);
-  }
-
-  /** @method clear()
-   * Clears any entity currently in the Variable.
-   * throws: Error if this variable is not configured as a writeable view (i.e. 'out' or 'inout')
-     in the particle's manifest.
-   */
-  async clear() {
-    if (!this.canWrite)
-      throw new Error('View not writeable');
-    await this._view.clear(this._particleId);
-  }
-}
-
-function handleFor(view, isSet, particleId, canRead = true, canWrite = true) {
-  return (isSet || (isSet == undefined && view.type.isSetView))
-      ? new Collection(view, particleId, canRead, canWrite)
-      : new Variable(view, particleId, canRead, canWrite);
-}
-
-/* harmony default export */ __webpack_exports__["a"] = ({handleFor});
-
-
-/***/ }),
-/* 27 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__type_js__ = __webpack_require__(1);
-// @license
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-
-
-
-
-// TODO: relation identifier should incorporate key/value identifiers
-class Identifier {
-  constructor(view, type, key) {
-    this.view = type;
-    this.type = type;
-    this.key = key;
-  }
-  toLiteral() {
-    return [this.view, this.type.toLiteral(), this.key];
-  }
-  static fromLiteral(data) {
-    let [view, literalType, key] = data;
-    return new Identifier(view, __WEBPACK_IMPORTED_MODULE_1__type_js__["a" /* default */].fromLiteral(literalType), key);
-  }
-}
-
-/* unused harmony default export */ var _unused_webpack_default_export = (Identifier);
-
-
-/***/ }),
-/* 28 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_fs_web_js__ = __webpack_require__(8);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_vm_web_js__ = __webpack_require__(19);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__fetch_web_js__ = __webpack_require__(25);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__particle_js__ = __webpack_require__(7);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__dom_particle_js__ = __webpack_require__(6);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__transformation_dom_particle_js__ = __webpack_require__(11);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__converters_jsonldToManifest_js__ = __webpack_require__(15);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-
-
-
-
-
-function schemaLocationFor(name) {
-  return `../entities/${name}.schema`;
-}
-
-class Loader {
-  path(fileName) {
-    let path = fileName.replace(/[\/][^\/]+$/, '/');
-    return path;
-  }
-
-  join(prefix, path) {
-    if (/^https?:\/\//.test(path))
-      return path;
-    // TODO: replace this with something that isn't hacky
-    if (path[0] == '/' || path[1] == ':')
-      return path;
-    prefix = this.path(prefix);
-    return prefix + path;
-  }
-
-  loadResource(file) {
-    if (/^https?:\/\//.test(file))
-      return this._loadURL(file);
-    return this._loadFile(file);
-  }
-
-  _loadFile(file) {
-    return new Promise((resolve, reject) => {
-      __WEBPACK_IMPORTED_MODULE_0__platform_fs_web_js__["a" /* default */].readFile(file, (err, data) => {
-        if (err)
-          reject(err);
-        else
-          resolve(data.toString('utf-8'));
-      });
-    });
-  }
-
-  _loadURL(url) {
-    if (/\/\/schema.org\//.test(url)) {
-      if (url.endsWith('/Thing')) {
-        return __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__fetch_web_js__["a" /* default */])('https://schema.org/Product.jsonld').then(res => res.text()).then(data => __WEBPACK_IMPORTED_MODULE_7__converters_jsonldToManifest_js__["a" /* default */].convert(data, {'@id': 'schema:Thing'}));
-      }
-      return __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__fetch_web_js__["a" /* default */])(url + '.jsonld').then(res => res.text()).then(data => __WEBPACK_IMPORTED_MODULE_7__converters_jsonldToManifest_js__["a" /* default */].convert(data));
-    }
-    return __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__fetch_web_js__["a" /* default */])(url).then(res => res.text());
-  }
-
-  async loadParticleClass(spec) {
-    let clazz = await this.requireParticle(spec.implFile);
-    clazz.spec = spec;
-    return clazz;
-  }
-
-  async requireParticle(fileName) {
-    let src = await this.loadResource(fileName);
-    // Note. This is not real isolation.
-    let script = new __WEBPACK_IMPORTED_MODULE_1__platform_vm_web_js__["a" /* default */].Script(src, {filename: fileName, displayErrors: true});
-    let result = [];
-    let self = {
-      defineParticle(particleWrapper) {
-        result.push(particleWrapper);
-      },
-      console,
-      importScripts: s => null //console.log(`(skipping browser-space import for [${s}])`)
-    };
-    script.runInNewContext(self, {filename: fileName, displayErrors: true});
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_3__platform_assert_web_js__["a" /* default */])(result.length > 0 && typeof result[0] == 'function', `Error while instantiating particle implementation from ${fileName}`);
-    return this.unwrapParticle(result[0]);
-  }
-
-  unwrapParticle(particleWrapper) {
-    return particleWrapper({particle: __WEBPACK_IMPORTED_MODULE_4__particle_js__["a" /* default */], Particle: __WEBPACK_IMPORTED_MODULE_4__particle_js__["a" /* default */].Particle, DomParticle: __WEBPACK_IMPORTED_MODULE_5__dom_particle_js__["a" /* default */], TransformationDomParticle: __WEBPACK_IMPORTED_MODULE_6__transformation_dom_particle_js__["a" /* default */]});
-  }
-
-}
-
-/* harmony default export */ __webpack_exports__["a"] = (Loader);
-
-
-/***/ }),
-/* 29 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__symbols_js__ = __webpack_require__(5);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__entity_js__ = __webpack_require__(2);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__schema_js__ = __webpack_require__(4);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__type_js__ = __webpack_require__(1);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__relation_js__ = __webpack_require__(9);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-
-
-
-function testEntityClass(type) {
-  return new __WEBPACK_IMPORTED_MODULE_3__schema_js__["a" /* default */]({
-    name: type,
-    sections: [{
-      sectionType: 'normative',
-      fields: {'id': 'Number', 'value': 'Text'}
-    }],
-    parents: [],
-  }).entityClass();
-}
-
-let BasicEntity = testEntityClass('BasicEntity');
-
-/* unused harmony default export */ var _unused_webpack_default_export = ({
-  Entity: __WEBPACK_IMPORTED_MODULE_2__entity_js__["a" /* default */],
-  BasicEntity,
-  Relation: __WEBPACK_IMPORTED_MODULE_5__relation_js__["a" /* default */],
-  testing: {
-    testEntityClass,
-  },
-  internals: {
-    identifier: __WEBPACK_IMPORTED_MODULE_1__symbols_js__["a" /* default */].identifier,
-    Type: __WEBPACK_IMPORTED_MODULE_4__type_js__["a" /* default */],
-  }
-});
-
-
-/***/ }),
-/* 30 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-class TupleFields {
-  constructor(fieldList) {
-    this.fieldList = fieldList;
-  }
-
-  static fromLiteral(literal) {
-    return new TupleFields(literal.map(a => Type.fromLiteral(a)));
-  }
-
-  toLiteral() {
-    return this.fieldList.map(a => a.toLiteral());
-  }
-
-  clone() {
-    return new TupleFields(this.fieldList.map(a => a.clone()));
-  }
-
-  equals(other) {
-    if (this.fieldList.length !== other.fieldList.length)
-      return false;
-    for (let i = 0; i < this.fieldList.length; i++) {
-      if (!this.fieldList[i].equals(other.fieldList[i]))
-        return false;
-    }
-    return true;
-  }
-}
-/* harmony export (immutable) */ __webpack_exports__["a"] = TupleFields;
 
 
 /***/ }),
@@ -3964,7 +4041,7 @@ function init() {
 
 init();
 
-/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(16)))
+/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(29)))
 
 /***/ })
 /******/ ]);

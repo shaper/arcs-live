@@ -94,13 +94,13 @@ function assert(test, message) {
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__strategizer_strategizer_js__ = __webpack_require__(2);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__connection_constraint_js__ = __webpack_require__(64);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__particle_js__ = __webpack_require__(68);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__search_js__ = __webpack_require__(30);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__slot_js__ = __webpack_require__(70);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__handle_js__ = __webpack_require__(67);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__connection_constraint_js__ = __webpack_require__(63);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__particle_js__ = __webpack_require__(67);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__search_js__ = __webpack_require__(27);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__slot_js__ = __webpack_require__(69);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__handle_js__ = __webpack_require__(66);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__util_js__ = __webpack_require__(5);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_8__digest_web_js__ = __webpack_require__(65);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_8__digest_web_js__ = __webpack_require__(64);
 // Copyright (c) 2017 Google Inc. All rights reserved.
 // This code may only be used under the BSD style license found at
 // http://polymer.github.io/LICENSE.txt
@@ -154,7 +154,7 @@ class Recipe {
     return particle;
   }
 
-  newView() {
+  newHandle() {
     let handle = new __WEBPACK_IMPORTED_MODULE_6__handle_js__["a" /* default */](this);
     this._handles.push(handle);
     return handle;
@@ -174,7 +174,16 @@ class Recipe {
         && this._particles.every(particle => particle.isResolved())
         && this._slots.every(slot => slot.isResolved())
         && this.handleConnections.every(connection => connection.isResolved())
-        && this.slotConnections.every(connection => connection.isResolved());
+        // Verify slot connections: all required slot connections must be resolved,
+        // and for each particle their must be an at least one resolved slot connection.
+        && this._particles.every(particle => {
+          let connections = Object.values(particle.consumedSlotConnections);
+          if (connections.length == 0) {
+            return true;
+          }
+          return !!connections.find(connection => connection.isResolved())
+              && connections.every(connection => !connection.slotSpec.isRequired || connection.isResolved());
+        });
   }
 
   _findDuplicateHandle() {
@@ -274,7 +283,7 @@ class Recipe {
         if (invalids.length > 0)
           console.log(`Has Invalid ${name} ${invalids.map(f)}`);
       };
-      checkForInvalid('Views', this._handles, handle => `'${handle.toString()}'`);
+      checkForInvalid('Handles', this._handles, handle => `'${handle.toString()}'`);
       checkForInvalid('Particles', this._particles, particle => particle.name);
       checkForInvalid('Slots', this._slots, slot => slot.name);
       checkForInvalid('HandleConnections', this.handleConnections, handleConnection => `${handleConnection.particle.name}::${handleConnection.name}`);
@@ -814,7 +823,7 @@ class Strategy {
 
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__recipe_js__ = __webpack_require__(1);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__walker_base_js__ = __webpack_require__(72);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__walker_base_js__ = __webpack_require__(70);
 // Copyright (c) 2017 Google Inc. All rights reserved.
 // This code may only be used under the BSD style license found at
 // http://polymer.github.io/LICENSE.txt
@@ -894,7 +903,7 @@ Walker.Independent = __WEBPACK_IMPORTED_MODULE_1__walker_base_js__["a" /* defaul
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__shape_js__ = __webpack_require__(19);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__schema_js__ = __webpack_require__(8);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__type_variable_js__ = __webpack_require__(21);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__tuple_fields_js__ = __webpack_require__(93);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__tuple_fields_js__ = __webpack_require__(91);
 // @license
 // Copyright (c) 2017 Google Inc. All rights reserved.
 // This code may only be used under the BSD style license found at
@@ -917,7 +926,8 @@ function addType(name, arg) {
   let upperArg = arg ? arg[0].toUpperCase() + arg.substring(1) : '';
   Object.defineProperty(Type.prototype, `${lowerName}${upperArg}`, {
     get: function() {
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this[`is${name}`], `{${this.tag}, ${this.data}} is not of type ${name}`);
+      if (!this[`is${name}`])
+        __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this[`is${name}`], `{${this.tag}, ${this.data}} is not of type ${name}`);
       return this.data;
     }});
   Object.defineProperty(Type.prototype, `is${name}`, {
@@ -942,7 +952,7 @@ class Type {
     this.data = data;
   }
 
-  static newView(type) {
+  static newHandle(type) {
     console.warn('Type.newView is deprecated. Please use Type.newSetView instead');
     return Type.newSetView(type);
   }
@@ -1003,36 +1013,12 @@ class Type {
     return this;
   }
 
-  // Replaces manifestReference types with resolved schemas.
-  resolveReferences(resolve) {
-    if (this.isManifestReference) {
-      let resolved = resolve(this.data);
-      if (resolved.schema) {
-        return Type.newEntity(resolved.schema);
-      } else if (resolved.shape) {
-        return Type.newInterface(resolved.shape);
-      } else {
-        throw new Error('Expected {shape} or {schema}');
-      }
-    }
-
-    if (this.isSetView) {
-      return this.primitiveType().resolveReferences(resolve).setViewOf();
-    }
-
-    return this;
-  }
-
   static unwrapPair(type1, type2) {
     __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(type1 instanceof Type);
     __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(type2 instanceof Type);
-    if (type1.tag != type2.tag) {
-      return null;
-    }
-    if (type1.isEntity || type1.isInterface || type1.isVariableReference || type1.isManifestReference) {
-      return [type1, type2];
-    }
-    return Type.unwrapPair(type1.data, type2.data);
+    if (type1.isSetView && type2.isSetView)
+      return [type1.primitiveType(), type2.primitiveType()];
+    return [type1, type2];
   }
 
   equals(type) {
@@ -1055,8 +1041,24 @@ class Type {
     return JSON.stringify(this.data) == JSON.stringify(type.data);
   }
 
-  get isValid() {
-    return !this.variableReference;
+  _applyExistenceTypeTest(test) {
+    if (this.isSetView)
+      return this.primitiveType()._applyExistenceTypeTest(test);
+    if (this.isInterface)
+      return this.data._applyExistenceTypeTest(test);
+    return test(this);
+  }
+
+  get hasVariable() {
+    return this._applyExistenceTypeTest(type => type.isVariable);
+  }
+
+  get hasUnresolvedVariable() {
+    return this._applyExistenceTypeTest(type => type.isVariable && !type.variable.isResolved);
+  }
+
+  get hasVariableReference() {
+    return this._applyExistenceTypeTest(type => type.isVariableReference);
   }
 
   primitiveType() {
@@ -1131,10 +1133,16 @@ class Type {
     if (this.isEntity)
       return this.entitySchema.name;
     if (this.isInterface)
-      return 'Interface';
+      return this.interfaceShape.name;
     if (this.isTuple)
       return this.tupleFields.toString();
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])('Add support to serializing type:', this);
+    if (this.isVariableReference)
+      return `~${this.data}`;
+    if (this.isManifestReference)
+      return this.data;
+    if (this.isVariable)
+      return `~${this.data.name}`;
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(false, `Add support to serializing type: ${JSON.stringify(this)}`);
   }
 
   toPrettyString() {
@@ -1156,14 +1164,11 @@ class Type {
     }
     if (this.isTuple)
       return this.tupleFields.toString();
-    if (this.isManifestReference)
-      return this.manifestReferenceName;
     if (this.isInterface)
       return this.interfaceShape.toPrettyString();
   }
 }
 
-addType('ManifestReference');
 addType('Entity', 'schema');
 addType('VariableReference');
 addType('Variable');
@@ -1250,7 +1255,7 @@ function compareComparables(o1, o2) {
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* WEBPACK VAR INJECTION */(function(process) {/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_fs_web_js__ = __webpack_require__(24);
+/* WEBPACK VAR INJECTION */(function(process) {/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_fs_web_js__ = __webpack_require__(22);
 /*
   Copyright 2015 Google Inc. All Rights Reserved.
   Licensed under the Apache License, Version 2.0 (the "License");
@@ -1495,7 +1500,7 @@ function init() {
 
 init();
 
-/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(22)))
+/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(35)))
 
 /***/ }),
 /* 7 */
@@ -1536,7 +1541,7 @@ class RecipeUtil {
     let vMap = {};
     let hcMap = {};
     particles.forEach(particle => pMap[particle] = recipe.newParticle(particle));
-    views.forEach(view => vMap[view] = recipe.newView());
+    views.forEach(view => vMap[view] = recipe.newHandle());
     Object.keys(map).forEach(key => {
       Object.keys(map[key]).forEach(name => {
         let view = map[key][name];
@@ -1969,6 +1974,7 @@ class Schema {
             return true;
           }
         });
+        __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(data, `can't construct entity with null data`);
         for (let [name, value] of Object.entries(data)) {
           this.rawData[name] = value;
         }
@@ -2105,18 +2111,20 @@ class SlotSpec {
     this.name = slotModel.name;
     this.isRequired = slotModel.isRequired;
     this.isSet = slotModel.isSet;
+    this.tags = slotModel.tags;
     this.formFactor = slotModel.formFactor;
     this.providedSlots = [];
     slotModel.providedSlots.forEach(ps => {
-      this.providedSlots.push(new ProvidedSlotSpec(ps.name, ps.isSet, ps.formFactor, ps.views));
+      this.providedSlots.push(new ProvidedSlotSpec(ps.name, ps.isSet, ps.tags, ps.formFactor, ps.views));
     });
   }
 }
 
 class ProvidedSlotSpec {
-  constructor(name, isSet, formFactor, views) {
+  constructor(name, isSet, tags, formFactor, views) {
     this.name = name;
     this.isSet = isSet;
+    this.tags = tags;
     this.formFactor = formFactor;
     this.views = views;
   }
@@ -2359,17 +2367,20 @@ class DescriptionFormatter {
     this._particleDescriptions = [];
 
     // Combine all particles from direct and inner arcs.
-    let allParticles = description.arc.activeRecipe.particles;
-    /*
+    let innerParticlesByName = {};
     description._arc.recipes.forEach(recipe => {
       let innerArcs = [...recipe.innerArcs.values()];
       innerArcs.forEach(innerArc => {
         innerArc.recipes.forEach(innerRecipe => {
-          allParticles = allParticles.concat(innerRecipe.particles);
+          innerRecipe.particles.forEach(innerParticle => {
+            if (!innerParticlesByName[innerParticle.name]) {
+              innerParticlesByName[innerParticle.name] = innerParticle;
+            }
+          });
         });
       });
     });
-    */
+    let allParticles = description.arc.activeRecipe.particles.concat(Object.values(innerParticlesByName));
 
     await Promise.all(allParticles.map(async particle => {
       this._particleDescriptions.push(await this._createParticleDescription(particle, description.relevance));
@@ -2735,18 +2746,19 @@ class DescriptionFormatter {
 
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__build_manifest_parser_js__ = __webpack_require__(50);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__build_manifest_parser_js__ = __webpack_require__(48);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__recipe_recipe_js__ = __webpack_require__(1);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__particle_spec_js__ = __webpack_require__(9);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__schema_js__ = __webpack_require__(8);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__recipe_search_js__ = __webpack_require__(30);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__recipe_search_js__ = __webpack_require__(27);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__shape_js__ = __webpack_require__(19);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__type_js__ = __webpack_require__(4);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_8__recipe_util_js__ = __webpack_require__(5);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_9__storage_storage_provider_factory_js__ = __webpack_require__(35);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_9__storage_storage_provider_factory_js__ = __webpack_require__(33);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_10__scheduler_js__ = __webpack_require__(14);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_11__manifest_meta_js__ = __webpack_require__(60);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_11__manifest_meta_js__ = __webpack_require__(59);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_12__type_variable_js__ = __webpack_require__(21);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_13__recipe_type_checker_js__ = __webpack_require__(28);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -2771,6 +2783,51 @@ class DescriptionFormatter {
 
 
 
+
+class ManifestError extends Error {
+  constructor(location, message) {
+    super(message);
+    this.location = location;
+  }
+}
+
+// Calls `this.visit()` for each node in a manfest AST, parents before children.
+class ManifestVisitor {
+  traverse(ast) {
+    if (['string', 'number', 'boolean'].includes(typeof ast) || ast === null) {
+      return;
+    }
+    if (Array.isArray(ast)) {
+      for (let item of ast) {
+        this.traverse(item);
+      }
+      return;
+    }
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(ast.location, 'expected manifest node to have `location`');
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(ast.kind, 'expected manifest node to have `kind`');
+    let childrenVisited = false;
+    let visitChildren = () => {
+      if (childrenVisited) {
+        return;
+      }
+      childrenVisited = true;
+      for (let key of Object.keys(ast)) {
+        if (['location', 'kind', 'model'].includes(key)) {
+          continue;
+        }
+        this.traverse(ast[key]);
+      }
+    };
+    this.visit(ast, visitChildren);
+    visitChildren();
+  }
+
+  // Parents are visited before children, but an implementation can force
+  // children to be visted by calling `visitChildren()`.
+  visit(node, visitChildren) {
+  }
+}
+
 class Manifest {
   constructor({id}) {
     this._recipes = [];
@@ -2778,7 +2835,7 @@ class Manifest {
     // TODO: These should be lists, possibly with a separate flattened map.
     this._particles = {};
     this._schemas = {};
-    this._views = [];
+    this._handles = [];
     this._shapes = [];
     this._handleTags = new Map();
     this._fileName = null;
@@ -2820,7 +2877,7 @@ class Manifest {
     return this._fileName;
   }
   get views() {
-    return this._views;
+    return this._handles;
   }
   get scheduler() {
     return this._scheduler;
@@ -2834,7 +2891,6 @@ class Manifest {
   get resources() {
     return this._resources;
   }
-
   applyMeta(section) {
     if (this._storageProviderFactory !== undefined)
       __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(section.name == this._meta.name || section.name == undefined, `can't change manifest ID after storage is constructed`);
@@ -2842,12 +2898,13 @@ class Manifest {
   }
   // TODO: newParticle, Schema, etc.
   // TODO: simplify() / isValid().
-  async newView(type, name, id, tags) {
-    let view = await this.storageProviderFactory.construct(id, type, `in-memory://${this.id}`);
-    view.name = name;
-    this._views.push(view);
-    this._handleTags.set(view, tags ? tags : []);
-    return view;
+  async newHandle(type, name, id, tags) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!type.hasVariableReference, `handles can't have variable references`);
+    let handle = await this.storageProviderFactory.construct(id, type, `in-memory://${this.id}`);
+    handle.name = name;
+    this._handles.push(handle);
+    this._handleTags.set(handle, tags ? tags : []);
+    return handle;
   }
   _find(manifestFinder) {
     let result = manifestFinder(this);
@@ -2886,10 +2943,10 @@ class Manifest {
     return [...this._findAll(manifest => Object.values(manifest._particles).filter(particle => particle.primaryVerb == verb))];
   }
   findViewByName(name) {
-    return this._find(manifest => manifest._views.find(view => view.name == name));
+    return this._find(manifest => manifest._handles.find(handle => handle.name == name));
   }
   findHandleById(id) {
-    return this._find(manifest => manifest._views.find(view => view.id == id));
+    return this._find(manifest => manifest._handles.find(handle => handle.id == id));
   }
   findHandlesByType(type, options={}) {
     let tags = options.tags || [];
@@ -2901,19 +2958,19 @@ class Manifest {
       }
 
       if (subtype) {
-        let types = __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].unwrapPair(view.type, resolvedType);
-        if (types && types[0].isEntity) {
-          return types[0].entitySchema.contains(types[1].entitySchema);
+        let [left, right] = __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].unwrapPair(view.type, resolvedType);
+        if (left.isEntity && right.isEntity) {
+          return left.entitySchema.contains(right.entitySchema);
         }
         return false;
       }
 
       return view.type.equals(type);
     }
-    function tagPredicate(manifest, view) {
-      return tags.filter(tag => !manifest._handleTags.get(view).includes(tag)).length == 0;
+    function tagPredicate(manifest, handle) {
+      return tags.filter(tag => !manifest._handleTags.get(handle).includes(tag)).length == 0;
     }
-    return [...this._findAll(manifest => manifest._views.filter(view => typePredicate(view) && tagPredicate(manifest, view)))];
+    return [...this._findAll(manifest => manifest._handles.filter(handle => typePredicate(handle) && tagPredicate(manifest, handle)))];
   }
   findShapeByName(name) {
     return this._find(manifest => manifest._shapes.find(shape => shape.name == name));
@@ -2991,44 +3048,114 @@ ${e.message}
     }
 
     try {
-      // processing meta sections should come first as this contains identifying 
+      let processItems = async (kind, f) => {
+        for (let item of items) {
+          if (item.kind == kind) {
+            Manifest._augmentAstWithTypes(manifest, item);
+            await f(item);
+          }
+        }
+      };
+      // processing meta sections should come first as this contains identifying
       // information that might need to be used in other sections. For example,
       // the meta.name, if present, becomes the manifest id which is relevant
       // when constructing manifest views.
-      for (let meta of items.filter(item => item.kind == 'meta')) {
-        manifest.applyMeta(meta.items);
-      }
-      // similarly, resources may be referenced from other parts of the
-      // manifest.
-      for (let item of items.filter(item => item.kind == 'resource')) {
-        this._processResource(manifest, item);
-      }
-      for (let item of items.filter(item => item.kind == 'schema')) {
-        this._processSchema(manifest, item);
-      }
-      for (let item of items.filter(item => item.kind == 'shape')) {
-        this._processShape(manifest, item);
-      }
-      for (let item of items.filter(item => item.kind == 'particle')) {
-        this._processParticle(manifest, item, loader);
-      }
-      for (let item of items.filter(item => item.kind == 'view')) {
-        await this._processView(manifest, item, loader);
-      }
-      for (let item of items.filter(item => item.kind == 'recipe')) {
-        await this._processRecipe(manifest, item, loader);
-      }
+      await processItems('meta', meta => manifest.applyMeta(meta.items));
+      // similarly, resources may be referenced from other parts of the manifest.
+      await processItems('resource', item => this._processResource(manifest, item));
+      await processItems('schema', item => this._processSchema(manifest, item));
+      await processItems('shape', item => this._processShape(manifest, item));
+      await processItems('particle', item => this._processParticle(manifest, item, loader));
+      await processItems('view', item => this._processView(manifest, item, loader));
+      await processItems('recipe', item => this._processRecipe(manifest, item, loader));
     } catch (e) {
       throw processError(e);
     }
     return manifest;
+  }
+  static _augmentAstWithTypes(manifest, items) {
+    let visitor = new class extends ManifestVisitor {
+      constructor() {
+        super();
+      }
+      visit(node, visitChildren) {
+        visitChildren();
+        switch (node.kind) {
+        case 'schema-inline':
+          let externalSchema;
+          if (node.name != null) {
+            let resolved = manifest.resolveReference(node.name);
+            if (resolved && resolved.schema) {
+              externalSchema = resolved.schema;
+            }
+          }
+          let fields = {};
+          for (let {name, type} of node.fields) {
+            if (!type) {
+              if (!externalSchema) {
+                throw new ManifestError(
+                    node.location,
+                    `Could not infer type of '${name}' field`);
+              }
+              type = externalSchema.normative[name] || externalSchema.optional[name];
+            }
+            if (externalSchema) {
+              let externalType = externalSchema.normative[name] || externalSchema.optional[name];
+              if (externalType != type) {
+                throw new ManifestError(
+                    node.location,
+                    `Type of '${name}' does not match schema (${type} vs ${externalType})`);
+              }
+            }
+            fields[name] = type;
+          }
+          node.model = __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].newEntity(new __WEBPACK_IMPORTED_MODULE_4__schema_js__["a" /* default */]({
+            name: node.name,
+            parents: [],
+            sections: [{
+              sectionType: 'normative',
+              fields,
+            }],
+          }));
+          return;
+        case 'variable-type':
+          node.model = __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].newVariableReference(node.name);
+          return;
+        case 'reference-type':
+          let resolved = manifest.resolveReference(node.name);
+          if (!resolved) {
+            throw new ManifestError(
+                node.location,
+                `Could not resolve type reference '${node.name}'`);
+          }
+          if (resolved.schema) {
+            node.model = __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].newEntity(resolved.schema);
+          } else if (resolved.shape) {
+            node.model = __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].newInterface(resolved.shape);
+          } else {
+            throw new Error('Expected {shape} or {schema}');
+          }
+          return;
+        case 'list-type':
+          node.model = __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].newSetView(node.type.model);
+          return;
+        default:
+          return;
+        }
+      }
+    }();
+    visitor.traverse(items);
   }
   static _processSchema(manifest, schemaItem) {
     manifest._schemas[schemaItem.name] = new __WEBPACK_IMPORTED_MODULE_4__schema_js__["a" /* default */]({
       name: schemaItem.name,
       parents: schemaItem.parents.map(parent => {
         let result = manifest.findSchemaByName(parent);
-        __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(result);
+        if (!result) {
+          throw new ManifestError(
+              schemaItem.location,
+              `Could not find parent schema '${parent}'`);
+        }
         return result.toLiteral();
       }),
       sections: schemaItem.sections.map(section => {
@@ -3047,6 +3174,8 @@ ${e.message}
     manifest._resources[schemaItem.name] = schemaItem.data;
   }
   static _processParticle(manifest, particleItem, loader) {
+    // TODO: we should be producing a new particleSpec, not mutating
+    //       particleItem directly.
     // TODO: we should require both of these and update failing tests...
     __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(particleItem.implFile == null || particleItem.args !== null, 'no valid body defined for this particle');
     if (!particleItem.args) {
@@ -3058,44 +3187,18 @@ ${e.message}
     }
 
     for (let arg of particleItem.args) {
-      arg.type = Manifest._processType(arg.type);
-      arg.type = arg.type.resolveReferences(name => manifest.resolveReference(name));
+      arg.type = arg.type.model;
     }
 
     let particleSpec = new __WEBPACK_IMPORTED_MODULE_3__particle_spec_js__["a" /* default */](particleItem);
     manifest._particles[particleItem.name] = particleSpec;
   }
   // TODO: Move this to a generic pass over the AST and merge with resolveReference.
-  static _processType(typeItem) {
-    switch (typeItem.kind) {
-      case 'schema-inline':
-        let fields = {};
-        for (let {name, type} of typeItem.fields) {
-          fields[name] = type;
-        }
-        return __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].newEntity(new __WEBPACK_IMPORTED_MODULE_4__schema_js__["a" /* default */]({
-          name: typeItem.name,
-          parents: [],
-          sections: [{
-            sectionType: 'normative',
-            fields,
-          }],
-        }));
-      case 'variable-type':
-        return __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].newVariableReference(typeItem.name);
-      case 'reference-type':
-        return __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].newManifestReference(typeItem.name);
-      case 'list-type':
-        return __WEBPACK_IMPORTED_MODULE_7__type_js__["a" /* default */].newSetView(Manifest._processType(typeItem.type));
-      default:
-        throw `Unexpected type item of kind '${typeItem.kind}'`;
-    }
-  }
   static _processShape(manifest, shapeItem) {
     for (let arg of shapeItem.interface.args) {
       if (!!arg.type) {
-        arg.type = Manifest._processType(arg.type);
-        arg.type = arg.type.resolveReferences(name => manifest.resolveReference(name));
+        // TODO: we should copy rather than mutate the AST like this
+        arg.type = arg.type.model;
       }
     }
     let views = shapeItem.interface.args;
@@ -3109,8 +3212,7 @@ ${e.message}
       });
     }
     // TODO: move shape to recipe/ and add shape builder?
-    let shape = new __WEBPACK_IMPORTED_MODULE_6__shape_js__["a" /* default */](views, slots);
-    shape.name = shapeItem.name;
+    let shape = new __WEBPACK_IMPORTED_MODULE_6__shape_js__["a" /* default */](shapeItem.name, views, slots);
     manifest._shapes.push(shape);
   }
   static async _processRecipe(manifest, recipeItem, loader) {
@@ -3133,24 +3235,16 @@ ${e.message}
       let fromParticle = manifest.findParticleByName(connection.from.particle);
       let toParticle = manifest.findParticleByName(connection.to.particle);
       if (!fromParticle) {
-        let error = new Error(`could not find particle '${connection.from.particle}'`);
-        error.location = connection.location;
-        throw error;
+        throw new ManifestError(connection.location, `could not find particle '${connection.from.particle}'`);
       }
       if (!toParticle) {
-        let error = new Error(`could not find particle '${connection.to.particle}'`);
-        error.location = connection.location;
-        throw error;
+        throw new ManifestError(connection.location, `could not find particle '${connection.to.particle}'`);
       }
       if (!fromParticle.connectionMap.has(connection.from.param)) {
-        let error = new Error(`param '${connection.from.param} is not defined by '${connection.from.particle}'`);
-        error.location = connection.location;
-        throw error;
+        throw new ManifestError(connection.location, `param '${connection.from.param} is not defined by '${connection.from.particle}'`);
       }
       if (!toParticle.connectionMap.has(connection.to.param)) {
-        let error = new Error(`param '${connection.to.param} is not defined by '${connection.to.particle}'`);
-        error.location = connection.location;
-        throw error;
+        throw new ManifestError(connection.location, `param '${connection.to.param} is not defined by '${connection.to.particle}'`);
       }
       recipe.newConnectionConstraint(fromParticle, connection.from.param,
                                      toParticle, connection.to.param);
@@ -3161,7 +3255,7 @@ ${e.message}
     }
 
     for (let item of items.views) {
-      let view = recipe.newView();
+      let view = recipe.newHandle();
       let ref = item.ref || {tags: []};
       if (ref.id) {
         view.id = ref.id;
@@ -3186,8 +3280,12 @@ ${e.message}
 
     for (let item of items.slots) {
       let slot = recipe.newSlot();
-      if (item.id) {
-        slot.id = item.id;
+      item.ref = item.ref || {};
+      if (item.ref.id) {
+        slot.id = item.ref.id;
+      }
+      if (item.ref.tags) {
+        slot.tags = item.ref.tags;
       }
       if (item.name) {
         __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!items.byName.has(item.name), `Duplicate slot local name ${item.name}`);
@@ -3259,15 +3357,15 @@ ${e.message}
         let direction = {'->': 'out', '<-': 'in', '=': 'inout'}[connectionItem.dir];
         if (connection.direction) {
           if (connection.direction != direction && direction != 'inout' && !(connection.direction == 'host' && direction == 'in')) {
-            let error = new Error(`'${connectionItem.dir}' not compatible with '${connection.direction}' param of '${particle.name}'`);
-            error.location = connectionItem.location;
-            throw error;
+            throw new ManifestError(
+                connectionItem.location,
+                `'${connectionItem.dir}' not compatible with '${connection.direction}' param of '${particle.name}'`);
           }
         } else {
           if (connectionItem.param != '*') {
-            let error = new Error(`param '${connectionItem.param}' is not defined by '${particle.name}'`);
-            error.location = connectionItem.location;
-            throw error;
+            throw new ManifestError(
+                connectionItem.location,
+                `param '${connectionItem.param}' is not defined by '${particle.name}'`);
           }
           connection.direction = direction;
         }
@@ -3278,9 +3376,9 @@ ${e.message}
         if (connectionItem.target && connectionItem.target.name) {
           let entry = items.byName.get(connectionItem.target.name);
           if (!entry) {
-            let error = new Error(`Could not find handle '${connectionItem.target.name}'`);
-            error.location = connectionItem.location;
-            throw error;
+            throw new ManifestError(
+                connectionItem.location,
+                `Could not find handle '${connectionItem.target.name}'`);
           }
           if (entry.item.kind == 'view') {
             targetView = entry.view;
@@ -3295,26 +3393,28 @@ ${e.message}
         if (connectionItem.target && connectionItem.target.particle) {
           let hostedParticle = manifest.findParticleByName(connectionItem.target.particle);
           if (!hostedParticle) {
-            let error = new Error(`Could not find hosted particle '${connectionItem.target.particle}'`);
-            error.location = connectionItem.target.location;
-            throw error;
+            throw new ManifestError(
+                connectionItem.target.location,
+                `Could not find hosted particle '${connectionItem.target.particle}'`);
           }
-          if (!connection.type.data.particleMatches(hostedParticle)) {
-            let errorType = new Error(`Hosted particle '${hostedParticle.name}' does not match shape '${connection.name}'`);
-            errorType.location = connectionItem.target.location;
-            throw errorType;
+          __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!connection.type.hasVariableReference);
+          let type = __WEBPACK_IMPORTED_MODULE_13__recipe_type_checker_js__["a" /* default */].restrictType(connection.type, hostedParticle);
+          if (!type) {
+            throw new ManifestError(
+                connectionItem.target.location,
+                `Hosted particle '${hostedParticle.name}' does not match shape '${connection.name}'`);
           }
           let id = `${manifest.generateID()}:immediate${hostedParticle.name}`;
           // TODO: Mark as immediate.
-          targetView = recipe.newView();
-          targetView.fate = 'map';
-          let view = await manifest.newView(connection.type, null, id, []);
+          targetView = recipe.newHandle();
+          targetView.fate = 'copy';
+          let handle = await manifest.newHandle(type, null, id, []);
           // TODO: loader should not be optional.
           if (hostedParticle.implFile && loader) {
             hostedParticle.implFile = loader.join(manifest.fileName, hostedParticle.implFile);
           }
-          view.set(hostedParticle.clone().toLiteral());
-          targetView.mapToView(view);
+          handle.set(hostedParticle.clone().toLiteral());
+          targetView.mapToView(handle);
         }
 
         if (targetParticle) {
@@ -3333,7 +3433,7 @@ ${e.message}
           targetView = targetConnection.view;
           if (!targetView) {
             // TODO: tags?
-            targetView = recipe.newView();
+            targetView = recipe.newHandle();
             targetConnection.connectToView(targetView);
           }
         }
@@ -3346,15 +3446,15 @@ ${e.message}
       for (let slotConnectionItem of item.slotConnections) {
         // Validate consumed and provided slots names are according to spec.
         if (!particle.spec.slots.has(slotConnectionItem.param)) {
-          let error = new Error(`Consumed slot '${slotConnectionItem.param}' is not defined by '${particle.name}'`);
-          error.location = slotConnectionItem.location;
-          throw error;
+          throw new ManifestError(
+              slotConnectionItem.location,
+              `Consumed slot '${slotConnectionItem.param}' is not defined by '${particle.name}'`);
         }
         slotConnectionItem.providedSlots.forEach(ps => {
           if (!particle.spec.slots.get(slotConnectionItem.param).providedSlots.find(specPs => specPs.name == ps.param)) {
-            let error = new Error(`Provided slot '${ps.param}' is not defined by '${particle.name}'`);
-            error.location = ps.location;
-            throw error;
+            throw new ManifestError(
+                ps.location,
+                `Provided slot '${ps.param}' is not defined by '${particle.name}'`);
           }
         });
         let targetSlot = items.byName.get(slotConnectionItem.name);
@@ -3385,22 +3485,20 @@ ${e.message}
     if (shape) {
       return {shape};
     }
-    throw new Error(`Schema or Shape '${name}' was not declared or imported`);
+    return null;
   }
   static async _processView(manifest, item, loader) {
     let name = item.name;
     let id = item.id;
-    let type = Manifest._processType(item.type);
+    let type = item.type.model;
     if (id == null) {
-      id = `${manifest._id}view${manifest._views.length}`;
+      id = `${manifest._id}view${manifest._handles.length}`;
     }
     let tags = item.tags;
     if (tags == null)
       tags = [];
 
-    type = type.resolveReferences(name => manifest.resolveReference(name));
-
-    let view = await manifest.newView(type, name, id, tags);
+    let view = await manifest.newHandle(type, name, id, tags);
     view.source = item.source;
     view.description = item.description;
     // TODO: How to set the version?
@@ -3421,29 +3519,33 @@ ${e.message}
     try {
       entities = JSON.parse(json);
     } catch (e) {
-      let error = new Error(`Error parsing JSON from '${source}' (${e.message})'`);
-      error.location = item.location;
-      throw error;
+      throw new ManifestError(item.location, `Error parsing JSON from '${source}' (${e.message})'`);
     }
-    for (let entity of entities) {
-      if (entity == null && !type.isSetView) {
-        view.clear();
-      } else {
+
+    let unitType;
+    if (!type.isSetView) {
+      if (entities.length == 0)
+        return;
+      entities = entities.slice(entities.length - 1);
+      unitType = type;
+    } else {
+      unitType = type.primitiveType();
+    }
+
+    if (unitType.isEntity) {
+      entities = entities.map(entity => {
+        if (entity == null)
+          return null;
         let id = entity.$id || manifest.generateID();
         delete entity.$id;
-      
-        if (type.isSetView) {
-          view.store({
-            id,
-            rawData: entity,
-          });
-        } else {
-          view.set({
-            id,
-            rawData: entity,
-          });
-        }
-      }
+        return {id, rawData: entity};
+      });
+    }
+
+    if (type.isSetView) {
+      view._fromListWithVersion(entities, item.version);
+    } else {
+      view._setWithVersion(entities[0], item.version);
     }
   }
   _newRecipe(name) {
@@ -3700,7 +3802,7 @@ class Scheduler {
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_js__ = __webpack_require__(17);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__browser_lib_xen_state_js__ = __webpack_require__(26);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__shell_components_xen_xen_state_js__ = __webpack_require__(92);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -3720,7 +3822,7 @@ class Scheduler {
 /** @class DomParticle
  * Particle that does stuff with DOM.
  */
-class DomParticle extends __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__browser_lib_xen_state_js__["a" /* default */])(__WEBPACK_IMPORTED_MODULE_1__particle_js__["b" /* Particle */]) {
+class DomParticle extends __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__shell_components_xen_xen_state_js__["a" /* default */])(__WEBPACK_IMPORTED_MODULE_1__particle_js__["b" /* Particle */]) {
   /** @method get template()
    * Override to return a String defining primary markup.
    */
@@ -3842,13 +3944,13 @@ class DomParticle extends __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__bro
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_fs_web_js__ = __webpack_require__(24);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_vm_web_js__ = __webpack_require__(46);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__fetch_web_js__ = __webpack_require__(57);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_fs_web_js__ = __webpack_require__(22);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_vm_web_js__ = __webpack_require__(47);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__fetch_web_js__ = __webpack_require__(55);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__particle_js__ = __webpack_require__(17);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__dom_particle_js__ = __webpack_require__(15);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__transformation_dom_particle_js__ = __webpack_require__(36);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__transformation_dom_particle_js__ = __webpack_require__(34);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__converters_jsonldToManifest_js__ = __webpack_require__(41);
 /**
  * @license
@@ -3953,7 +4055,7 @@ class Loader {
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_js__ = __webpack_require__(31);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_js__ = __webpack_require__(29);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_spec_js__ = __webpack_require__(9);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__tracelib_trace_js__ = __webpack_require__(6);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__platform_assert_web_js__ = __webpack_require__(0);
@@ -4275,18 +4377,25 @@ function _toLiteral(member) {
   return member;
 }
 
+const handleFields = ['type', 'name', 'direction'];
+const slotFields = ['name', 'direction', 'isRequired', 'isSet'];
+
 class Shape {
-  constructor(views, slots) {
+  constructor(name, views, slots) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(name);
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(views !== undefined);
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(slots !== undefined);
+    this.name = name;
     this.views = views;
     this.slots = slots;
     this._typeVars = [];
     for (let view of views)
-      for (let field of ['type', 'name', 'direction'])
+      for (let field of handleFields)
         if (Shape.isTypeVar(view[field]))
           this._typeVars.push({object: view, field});
 
     for (let slot of slots)
-      for (let field of ['name', 'direction', 'isRequired', 'isSet'])
+      for (let field of slotFields)
         if (Shape.isTypeVar(slot[field]))
           this._typeVars.push({object: slot, field});
   }
@@ -4295,22 +4404,54 @@ class Shape {
     return 'SHAAAAPE';
   }
 
+  _applyExistenceTypeTest(test) {
+    for (let typeRef of this._typeVars) {
+      if (test(typeRef.object[typeRef.field]))
+        return true;
+    }
+
+    return false;
+  }
+
+  _handlesToManifestString() {
+    return this.views
+      .map(handle => {
+        let type = handle.type.resolvedType();
+        return `${handle.direction ? handle.direction + ' ': ''}${type.toString()}${handle.name ? ' ' + handle.name : ''}`;
+      }).join(', ');
+  }
+
+  _slotsToManifestString() {
+    // TODO deal with isRequired
+    return this.slots
+      .map(slot => `  ${slot.direction} ${slot.isSet ? 'set of ' : ''}${slot.name ? slot.name + ' ' : ''}`)
+      .join('\n');
+  }
+  // TODO: Include name as a property of the shape and normalize this to just
+  // toString().
+  toString() {
+    return `shape ${this.name}
+  ${this.name}(${this._handlesToManifestString()})
+${this._slotsToManifestString()}
+`;
+  }
+
   static fromLiteral(data) {
     let views = data.views.map(view => ({type: _fromLiteral(view.type), name: _fromLiteral(view.name), direction: _fromLiteral(view.direction)}));
     let slots = data.slots.map(slot => ({name: _fromLiteral(slot.name), direction: _fromLiteral(slot.direction), isRequired: _fromLiteral(slot.isRequired), isSet: _fromLiteral(slot.isSet)}));
-    return new Shape(views, slots);
+    return new Shape(data.name, views, slots);
   }
 
   toLiteral() {
     let views = this.views.map(view => ({type: _toLiteral(view.type), name: _toLiteral(view.name), direction: _toLiteral(view.direction)}));
     let slots = this.slots.map(slot => ({name: _toLiteral(slot.name), direction: _toLiteral(slot.direction), isRequired: _toLiteral(slot.isRequired), isSet: _toLiteral(slot.isSet)}));
-    return {views, slots};
+    return {name: this.name, views, slots};
   }
 
   clone() {
     let views = this.views.map(({name, direction, type}) => ({name, direction, type}));
     let slots = this.slots.map(({name, direction, isRequired, isSet}) => ({name, direction, isRequired, isSet}));
-    return new Shape(views, slots);
+    return new Shape(this.name, views, slots);
   }
 
   equals(other) {
@@ -4366,10 +4507,17 @@ class Shape {
     // TODO: direction subsetting?
     if (Shape.mustMatch(shapeView.direction) && shapeView.direction !== particleView.direction)
       return false;
-    // TODO: polymorphism?
-    if (Shape.mustMatch(shapeView.type) && !shapeView.type.equals(particleView.type))
+    if (shapeView.type == undefined)
+      return true;
+    if (shapeView.type.isVariableReference)
       return false;
-    return true;
+    let [left, right] = __WEBPACK_IMPORTED_MODULE_1__type_js__["a" /* default */].unwrapPair(shapeView.type, particleView.type);
+    if (left.isVariable) {
+      return [{var: left, value: right}];
+    } else {
+      return left.equals(right);
+    }
+
   }
 
   static slotsMatch(shapeSlot, particleSlot) {
@@ -4385,7 +4533,20 @@ class Shape {
   }
 
   particleMatches(particleSpec) {
-    let viewMatches = this.views.map(view => particleSpec.connections.filter(connection => Shape.viewsMatch(view, connection)));
+    return this.restrictType(particleSpec) !== false;
+  }
+
+  restrictType(particleSpec) {
+    let newShape = this.clone();
+    return newShape._restrictThis(particleSpec); 
+  }
+
+  _restrictThis(particleSpec) {
+
+    let viewMatches = this.views.map(
+      view => particleSpec.connections.map(connection => ({match: connection, result: Shape.viewsMatch(view, connection)}))
+                                      .filter(a => a.result !== false));
+
     let particleSlots = [];
     particleSpec.slots.forEach(consumedSlot => {
       particleSlots.push({name: consumedSlot.name, direction: 'consume', isRequired: consumedSlot.isRequired, isSet: consumedSlot.isSet});
@@ -4394,25 +4555,39 @@ class Shape {
       });
     });
     let slotMatches = this.slots.map(slot => particleSlots.filter(particleSlot => Shape.slotsMatch(slot, particleSlot)));
+    slotMatches = slotMatches.map(matchList => matchList.map(slot => ({match: slot, result: true})));
 
     let exclusions = [];
 
+    // TODO: this probably doesn't deal with multiple match options.
     function choose(list, exclusions) {
       if (list.length == 0)
-        return true;
+        return [];
       let thisLevel = list.pop();
       for (let connection of thisLevel) {
-        if (exclusions.includes(connection))
+        if (exclusions.includes(connection.match))
           continue;
         let newExclusions = exclusions.slice();
-        newExclusions.push(connection);
-        if (choose(list, newExclusions))
-          return true;
+        newExclusions.push(connection.match);
+        let constraints = choose(list, newExclusions);
+        if (constraints !== false) {
+          return connection.result.length ? constraints.concat(connection.result) : constraints;
+        }
       }
 
       return false;
     }
-    return choose(viewMatches, []) && choose(slotMatches, []);
+    
+    let viewOptions = choose(viewMatches, []);
+    let slotOptions = choose(slotMatches, []);
+
+    if (viewOptions === false || slotOptions === false)
+      return false;
+
+    for (let constraint of viewOptions)
+      constraint.var.variable.resolution = constraint.value;
+
+    return this;
   }
 }
 
@@ -4565,6 +4740,1552 @@ class TypeVariable {
 
 /***/ }),
 /* 22 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+/* harmony default export */ __webpack_exports__["a"] = ({});
+
+
+/***/ }),
+/* 23 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return PECOuterPort; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return PECInnerPort; });
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_spec_js__ = __webpack_require__(9);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__type_js__ = __webpack_require__(4);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__ = __webpack_require__(50);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+
+
+class ThingMapper {
+  constructor(prefix) {
+    this._prefix = prefix;
+    this._nextIdentifier = 0;
+    this._idMap = new Map();
+    this._reverseIdMap = new Map();
+  }
+
+  _newIdentifier() {
+    return this._prefix + (this._nextIdentifier++);
+  }
+
+  createMappingForThing(thing, requestedId) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._reverseIdMap.has(thing));
+    let id;
+    if (requestedId) {
+      id = requestedId;
+    } else if (thing.apiChannelMappingId) {
+      id = thing.apiChannelMappingId;
+    } else {
+      id = this._newIdentifier();
+    }
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._idMap.has(id), `${requestedId ? 'requestedId' : (thing.apiChannelMappingId ? 'apiChannelMappingId' : 'newIdentifier()')} ${id} already in use`);
+    this.establishThingMapping(id, thing);
+    return id;
+  }
+
+  maybeCreateMappingForThing(thing) {
+    if (this.hasMappingForThing(thing)) {
+      return this.identifierForThing(thing);
+    }
+    return this.createMappingForThing(thing);
+  }
+
+  async establishThingMapping(id, thing) {
+    let continuation;
+    if (Array.isArray(thing)) {
+      [thing, continuation] = thing;
+    }
+    this._idMap.set(id, thing);
+    if (thing instanceof Promise) {
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(continuation == null);
+      await this.establishThingMapping(id, await thing);
+    } else {
+      this._reverseIdMap.set(thing, id);
+      if (continuation) {
+        await continuation();
+      }
+    }
+  }
+
+  hasMappingForThing(thing) {
+    return this._reverseIdMap.has(thing);
+  }
+
+  identifierForThing(thing) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._reverseIdMap.has(thing), `Missing thing ${thing}`);
+    return this._reverseIdMap.get(thing);
+  }
+
+  thingForIdentifier(id) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._idMap.has(id), `Missing id: ${id}`);
+    return this._idMap.get(id);
+  }
+}
+
+
+class APIPort {
+  constructor(messagePort, prefix) {
+    this._port = messagePort;
+    this._mapper = new ThingMapper(prefix);
+    this._messageMap = new Map();
+    this._port.onmessage = async e => this._handle(e);
+    this._debugAttachment = null;
+    this.messageCount = 0;
+
+    this.Direct = {
+      convert: a => a,
+      unconvert: a => a
+    };
+
+    this.Stringify = {
+      convert: a => a.toString(),
+      unconvert: a => eval(a)
+    };
+
+    this.LocalMapped = {
+      convert: a => this._mapper.maybeCreateMappingForThing(a),
+      unconvert: a => this._mapper.thingForIdentifier(a)
+    };
+
+    this.Mapped = {
+      convert: a => this._mapper.identifierForThing(a),
+      unconvert: a => this._mapper.thingForIdentifier(a)
+    };
+
+    this.Dictionary = function(primitive) {
+      return {
+        convert: a => {
+          let r = {};
+          for (let key in a) {
+            r[key] = primitive.convert(a[key]);
+          }
+          return r;
+        }
+      };
+    };
+
+    this.Map = function(keyprimitive, valueprimitive) {
+      return {
+        convert: a => {
+          let r = {};
+          a.forEach((value, key) => r[keyprimitive.convert(key)] = valueprimitive.convert(value));
+          return r;
+        },
+        unconvert: a => {
+          let r = new Map();
+          for (let key in a)
+            r.set(keyprimitive.unconvert(key), valueprimitive.unconvert(a[key]));
+          return r;
+        }
+      };
+    };
+
+    this.List = function(primitive) {
+      return {
+        convert: a => a.map(v => primitive.convert(v)),
+        unconvert: a => a.map(v => primitive.unconvert(v))
+      };
+    };
+
+    this.ByLiteral = function(clazz) {
+      return {
+        convert: a => a.toLiteral(),
+        unconvert: a => clazz.fromLiteral(a)
+      };
+    };
+  }
+
+  close() {
+    this._port.close();
+  }
+
+  async _handle(e) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._messageMap.has(e.data.messageType));
+
+    this.messageCount++;
+
+    let handler = this._messageMap.get(e.data.messageType);
+    let args;
+    try {
+      args = this._unprocessArguments(handler.args, e.data.messageBody);
+    } catch (exc) {
+      console.error(`Exception during unmarshaling for ${e.data.messageType}`);
+      throw exc;
+    }
+    // If any of the converted arguments are still pending promises
+    // wait for them to complete before processing the message.
+    for (let arg of Object.values(args)) {
+      if (arg instanceof Promise) {
+        arg.then(() => this._handle(e));
+        return;
+      }
+    }
+    let handlerName = 'on' + e.data.messageType;
+    let result = this[handlerName](args);
+    if (this._debugAttachment && this._debugAttachment[handlerName]) {
+      this._debugAttachment[handlerName](args);
+    }
+    if (handler.isInitializer) {
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(args.identifier);
+      await this._mapper.establishThingMapping(args.identifier, result);
+    }
+  }
+
+  _processArguments(argumentTypes, args) {
+    let messageBody = {};
+    for (let argument in argumentTypes)
+      messageBody[argument] = argumentTypes[argument].convert(args[argument]);
+    return messageBody;
+  }
+
+  _unprocessArguments(argumentTypes, args) {
+    let messageBody = {};
+    for (let argument in argumentTypes)
+      messageBody[argument] = argumentTypes[argument].unconvert(args[argument]);
+    return messageBody;
+  }
+
+  registerCall(name, argumentTypes) {
+    this[name] = args => {
+      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
+      this._port.postMessage(call);
+      if (this._debugAttachment && this._debugAttachment[name]) {
+        this._debugAttachment[name](args);
+      }
+    };
+  }
+
+  registerHandler(name, argumentTypes) {
+    this._messageMap.set(name, {args: argumentTypes});
+  }
+
+  registerInitializerHandler(name, argumentTypes) {
+    argumentTypes.identifier = this.Direct;
+    this._messageMap.set(name, {
+      isInitializer: true,
+      args: argumentTypes,
+    });
+  }
+
+  registerRedundantInitializer(name, argumentTypes, mappingIdArg) {
+    this.registerInitializer(name, argumentTypes, mappingIdArg, true /* redundant */);
+  }
+
+  registerInitializer(name, argumentTypes, mappingIdArg = null, redundant = false) {
+    this[name] = (thing, args) => {
+      if (redundant && this._mapper.hasMappingForThing(thing)) return;
+      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
+      let requestedId = mappingIdArg && args[mappingIdArg];
+      call.messageBody.identifier = this._mapper.createMappingForThing(thing, requestedId);
+      this._port.postMessage(call);
+      if (this._debugAttachment && this._debugAttachment[name]) {
+        this._debugAttachment[name](thing, args);
+      }
+    };
+  }
+
+  initDebug(arcId) {
+    if (!this._debugAttachment) this._debugAttachment = new __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__["a" /* default */](arcId);
+  }
+}
+
+class PECOuterPort extends APIPort {
+  constructor(messagePort) {
+    super(messagePort, 'o');
+
+    this.registerCall('Stop', {});
+    this.registerCall('DefineParticle',
+      {particleDefinition: this.Direct, particleFunction: this.Stringify});
+    this.registerRedundantInitializer('DefineHandle', {type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
+    this.registerInitializer('InstantiateParticle',
+      {id: this.Direct, spec: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_1__particle_spec_js__["a" /* default */]), handles: this.Map(this.Direct, this.Mapped)}, 'id');
+
+    this.registerCall('UIEvent', {particle: this.Mapped, slotName: this.Direct, event: this.Direct});
+    this.registerCall('SimpleCallback', {callback: this.Direct, data: this.Direct});
+    this.registerCall('AwaitIdle', {version: this.Direct});
+    this.registerCall('StartRender', {particle: this.Mapped, slotName: this.Direct, contentTypes: this.List(this.Direct)});
+    this.registerCall('StopRender', {particle: this.Mapped, slotName: this.Direct});
+
+    this.registerHandler('Render', {particle: this.Mapped, slotName: this.Direct, content: this.Direct});
+    this.registerHandler('Synchronize', {handle: this.Mapped, target: this.Mapped,
+                                    type: this.Direct, callback: this.Direct,
+                                    modelCallback: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleGet', {handle: this.Mapped, callback: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleToList', {handle: this.Mapped, callback: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleSet', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleStore', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
+    this.registerHandler('HandleRemove', {handle: this.Mapped, data: this.Direct});
+    this.registerHandler('HandleClear', {handle: this.Mapped, particleId: this.Direct});
+    this.registerHandler('Idle', {version: this.Direct, relevance: this.Map(this.Mapped, this.Direct)});
+
+    this.registerHandler('ConstructInnerArc', {callback: this.Direct, particle: this.Mapped});
+    this.registerCall('ConstructArcCallback', {callback: this.Direct, arc: this.LocalMapped});
+
+    this.registerHandler('ArcCreateHandle', {callback: this.Direct, arc: this.LocalMapped, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
+    this.registerInitializer('CreateHandleCallback', {callback: this.Direct, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct, id: this.Direct});
+
+    this.registerHandler('ArcMapHandle', {callback: this.Direct, arc: this.LocalMapped, handle: this.Mapped});
+    this.registerInitializer('MapHandleCallback', {callback: this.Direct, id: this.Direct});
+
+    this.registerHandler('ArcCreateSlot',
+      {callback: this.Direct, arc: this.LocalMapped, transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedParticleName: this.Direct, hostedSlotName: this.Direct});
+    this.registerInitializer('CreateSlotCallback', {callback: this.Direct, hostedSlotId: this.Direct});
+    this.registerCall('InnerArcRender', {transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedSlotId: this.Direct, content: this.Direct});
+
+    this.registerHandler('ArcLoadRecipe', {arc: this.LocalMapped, recipe: this.Direct, callback: this.Direct});
+  }
+}
+
+class PECInnerPort extends APIPort {
+  constructor(messagePort) {
+    super(messagePort, 'i');
+
+    this.registerHandler('Stop', {});
+    // particleFunction needs to be eval'd in context or it won't work.
+    this.registerHandler('DefineParticle',
+      {particleDefinition: this.Direct, particleFunction: this.Direct});
+    this.registerInitializerHandler('DefineHandle', {type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
+    this.registerInitializerHandler('InstantiateParticle',
+      {id: this.Direct, spec: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_1__particle_spec_js__["a" /* default */]), handles: this.Map(this.Direct, this.Mapped)});
+
+    this.registerHandler('UIEvent', {particle: this.Mapped, slotName: this.Direct, event: this.Direct});
+    this.registerHandler('SimpleCallback', {callback: this.LocalMapped, data: this.Direct});
+    this.registerHandler('AwaitIdle', {version: this.Direct});
+    this.registerHandler('StartRender', {particle: this.Mapped, slotName: this.Direct, contentTypes: this.Direct});
+    this.registerHandler('StopRender', {particle: this.Mapped, slotName: this.Direct});
+
+    this.registerCall('Render', {particle: this.Mapped, slotName: this.Direct, content: this.Direct});
+    this.registerCall('Synchronize', {handle: this.Mapped, target: this.Mapped,
+                                 type: this.Direct, callback: this.LocalMapped,
+                                 modelCallback: this.LocalMapped, particleId: this.Direct});
+    this.registerCall('HandleGet', {handle: this.Mapped, callback: this.LocalMapped, particleId: this.Direct});
+    this.registerCall('HandleToList', {handle: this.Mapped, callback: this.LocalMapped, particleId: this.Direct});
+    this.registerCall('HandleSet', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
+    this.registerCall('HandleStore', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
+    this.registerCall('HandleRemove', {handle: this.Mapped, data: this.Direct});
+    this.registerCall('HandleClear', {handle: this.Mapped, particleId: this.Direct});
+    this.registerCall('Idle', {version: this.Direct, relevance: this.Map(this.Mapped, this.Direct)});
+
+    this.registerCall('ConstructInnerArc', {callback: this.LocalMapped, particle: this.Mapped});
+    this.registerHandler('ConstructArcCallback', {callback: this.LocalMapped, arc: this.Direct});
+
+    this.registerCall('ArcCreateHandle', {callback: this.LocalMapped, arc: this.Direct, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
+    this.registerInitializerHandler('CreateHandleCallback', {callback: this.LocalMapped, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct, id: this.Direct});
+    this.registerCall('ArcMapHandle', {callback: this.LocalMapped, arc: this.Direct, handle: this.Mapped});
+    this.registerInitializerHandler('MapHandleCallback', {callback: this.LocalMapped, id: this.Direct});
+    this.registerCall('ArcCreateSlot',
+      {callback: this.LocalMapped, arc: this.Direct, transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedParticleName: this.Direct, hostedSlotName: this.Direct});
+    this.registerInitializerHandler('CreateSlotCallback', {callback: this.LocalMapped, hostedSlotId: this.Direct});
+    this.registerHandler('InnerArcRender', {transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedSlotId: this.Direct, content: this.Direct});
+
+    this.registerCall('ArcLoadRecipe', {arc: this.Direct, recipe: this.Direct, callback: this.LocalMapped});
+  }
+}
+
+
+/* unused harmony default export */ var _unused_webpack_default_export = ({PECOuterPort, PECInnerPort});
+
+
+/***/ }),
+/* 24 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__ = __webpack_require__(45);
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+let instance = null;
+/* harmony default export */ __webpack_exports__["a"] = ({
+  get: () => {
+    if (!instance) instance = new __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__["a" /* default */]();
+    return instance;
+  }
+});
+
+
+/***/ }),
+/* 25 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return DomContext; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return SetDomContext; });
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__shell_components_xen_xen_template_js__ = __webpack_require__(93);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+class DomContext {
+  constructor(context, containerKind) {
+    this._context = context;
+    this._containerKind = containerKind;
+    // TODO(sjmiles): _liveDom needs new name
+    this._liveDom = null;
+    this._innerContextBySlotName = {};
+  }
+  static createContext(context, content) {
+    let domContext = new DomContext(context);
+    domContext.stampTemplate(DomContext.createTemplateElement(content.template), () => {});
+    domContext.updateModel(content.model);
+    return domContext;
+  }
+  initContext(context) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(context);
+    if (!this._context) {
+      this._context = document.createElement(this._containerKind || 'div');
+      context.appendChild(this._context);
+    } else {
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._context.parentNode == context,
+             'TODO: add support for moving slot to different context');
+    }
+  }
+  get context() { return this._context; }
+  isEqual(context) {
+    return this._context.parentNode == context;
+  }
+  updateModel(model) {
+    if (this._liveDom) {
+      this._liveDom.set(model);
+    }
+  }
+  clear() {
+    if (this._liveDom) {
+      this._liveDom.root.textContent = '';
+    }
+    this._liveDom = null;
+    this._innerContextBySlotName = {};
+
+  }
+  static createTemplateElement(template) {
+    return Object.assign(document.createElement('template'), {innerHTML: template});
+  }
+  stampTemplate(template, eventHandler) {
+    if (!this._liveDom) {
+      // TODO(sjmiles): hack to allow subtree elements (e.g. x-list) to marshal events
+      this._context._eventMapper = this._eventMapper.bind(this, eventHandler);
+      this._liveDom = __WEBPACK_IMPORTED_MODULE_1__shell_components_xen_xen_template_js__["a" /* default */]
+          .stamp(template)
+          .events(this._context._eventMapper)
+          .appendTo(this._context);
+    }
+  }
+  observe(observer) {
+    observer.observe(this._context, {childList: true, subtree: true});
+  }
+  getInnerContext(innerSlotName) {
+    return this._innerContextBySlotName[innerSlotName];
+  }
+  isDirectInnerSlot(slot) {
+    let parentNode = slot.parentNode;
+    while (parentNode) {
+      if (parentNode == this._context) {
+        return true;
+      }
+      if (parentNode.getAttribute('slotid')) {
+        // this is an inner slot of an inner slot.
+        return false;
+      }
+      parentNode = parentNode.parentNode;
+    }
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(false);
+  }
+  initInnerContexts(slotSpec) {
+    this._innerContextBySlotName = {};
+    Array.from(this._context.querySelectorAll('[slotid]')).forEach(s => {
+      if (!this.isDirectInnerSlot(s)) {
+        // Skip inner slots of an inner slot of the given slot.
+        return;
+      }
+      let slotId = s.getAttribute('slotid');
+      let providedSlotSpec = slotSpec.providedSlots.find(ps => ps.name == slotId);
+      if (providedSlotSpec) { // Skip non-declared slots
+        let subId = s.subid;
+        __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!subId || providedSlotSpec.isSet,
+            `Slot provided in ${slotSpec.name} sub-id ${subId} doesn't match set spec: ${providedSlotSpec.isSet}`);
+        if (providedSlotSpec.isSet) {
+          if (!this._innerContextBySlotName[slotId]) {
+            this._innerContextBySlotName[slotId] = {};
+          }
+          __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._innerContextBySlotName[slotId][subId],
+                 `Slot ${slotSpec.name} cannot provide multiple ${slotId}:${subId} inner slots`);
+          this._innerContextBySlotName[slotId][subId] = s;
+        } else {
+          this._innerContextBySlotName[slotId] = s;
+        }
+      } else {
+        console.warn(`Slot ${slotSpec.name} has unexpected inner slot ${slotId}`);
+      }
+    });
+  }
+  findRootSlots() {
+    let innerSlotById = {};
+    Array.from(this._context.querySelectorAll('[slotid]')).forEach(s => {
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this.isDirectInnerSlot(s), 'Unexpected inner slot');
+      let slotId = s.getAttribute('slotid');
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!innerSlotById[slotId], `Duplicate root slot ${slotId}`);
+      innerSlotById[slotId] = s;
+    });
+    return innerSlotById;
+  }
+  _eventMapper(eventHandler, node, eventName, handlerName) {
+    node.addEventListener(eventName, event => {
+      // TODO(sjmiles): we have an extremely minimalist approach to events here, this is useful IMO for
+      // finding the smallest set of features that we are going to need.
+      // First problem: click event firing multiple times as it bubbles up the tree, minimalist solution
+      // is to enforce a 'first listener' rule by executing `stopPropagation`.
+      event.stopPropagation();
+      eventHandler({
+        handler: handlerName,
+        data: {
+          key: node.key,
+          value: node.value
+        }
+      });
+    });
+  }
+}
+
+class SetDomContext {
+  constructor(containerKind) {
+    this._contextBySubId = {};
+    this._containerKind = containerKind;
+  }
+  initContext(context) {
+    Object.keys(context).forEach(subId => {
+      if (!this._contextBySubId[subId] || !this._contextBySubId[subId].isEqual(context[subId])) {
+        this._contextBySubId[subId] = new DomContext(null, this._containerKind);
+      }
+      this._contextBySubId[subId].initContext(context[subId]);
+    });
+    // Delete sub-contexts that are not found in the new context.
+    Object.keys(this._contextBySubId).forEach(subId => {
+      if (!context[subId]) {
+        delete this._contextBySubId[subId];
+      }
+    });
+  }
+  isEqual(context) {
+    return Object.keys(this._contextBySubId).length == Object.keys(context).length &&
+           !Object.keys(this._contextBySubId).find(c => this._contextBySubId[c] != context[c]);
+  }
+  updateModel(model) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(model.items, `Model must contain items`);
+    model.items.forEach(item => {
+      Object.keys(model).forEach(key => {
+        if (key != 'items') {
+          item[key] = model[key];
+        }
+      });
+      if (this._contextBySubId[item.subId]) {
+        this._contextBySubId[item.subId].updateModel(item);
+      }
+    });
+  }
+  clear() {
+    Object.values(this._contextBySubId).forEach(context => context.clear());
+  }
+  stampTemplate(template, eventHandler, eventMapper) {
+    Object.values(this._contextBySubId).forEach(context => context.stampTemplate(template, eventHandler, eventMapper));
+  }
+  observe(observer) {
+    Object.values(this._contextBySubId).forEach(context => context.observe(observer));
+  }
+  getInnerContext(innerSlotName) {
+    let innerContexts = {};
+    Object.keys(this._contextBySubId).forEach(subId => {
+      innerContexts[subId] = this._contextBySubId[subId].getInnerContext(innerSlotName);
+    });
+    return innerContexts;
+  }
+  initInnerContexts(slotSpec) {
+    Object.values(this._contextBySubId).forEach(context => context.initInnerContexts(slotSpec));
+  }
+}
+
+
+
+
+/***/ }),
+/* 26 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__identifier_js__ = __webpack_require__(57);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__entity_js__ = __webpack_require__(12);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__relation_js__ = __webpack_require__(18);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__symbols_js__ = __webpack_require__(13);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__particle_spec_js__ = __webpack_require__(9);
+/** @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+
+let identifier = __WEBPACK_IMPORTED_MODULE_3__symbols_js__["a" /* default */].identifier;
+
+
+
+// TODO: This won't be needed once runtime is transferred between contexts.
+function cloneData(data) {
+  return data;
+  //return JSON.parse(JSON.stringify(data));
+}
+
+function restore(entry, entityClass) {
+  let {id, rawData} = entry;
+  let entity = new entityClass(cloneData(rawData));
+  if (entry.id) {
+    entity.identify(entry.id);
+  }
+
+  // TODO some relation magic, somewhere, at some point.
+
+  return entity;
+}
+
+/** @class Handle
+ * Base class for Collections and Variables.
+ */
+class Handle {
+  constructor(proxy, particleId, canRead, canWrite) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(!(proxy instanceof Handle));
+    this._proxy = proxy;
+    this.canRead = canRead;
+    this.canWrite = canWrite;
+    this._particleId = particleId;
+  }
+  underlyingProxy() {
+    return this._proxy;
+  }
+  /** @method on(kind, callback, target)
+   * Register for callbacks every time the requested kind of event occurs.
+   * Events are grouped into delivery sets by target, which should therefore
+   * be the recieving particle.
+   */
+  on(kind, callback, target) {
+    return this._proxy.on(kind, callback, target, this._particleId);
+  }
+
+  synchronize(kind, modelCallback, callback, target) {
+    return this._proxy.synchronize(kind, modelCallback, callback, target, this._particleId);
+  }
+
+  generateID() {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this._proxy.generateID);
+    return this._proxy.generateID();
+  }
+
+  generateIDComponents() {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this._proxy.generateIDComponents);
+    return this._proxy.generateIDComponents();
+  }
+
+  _serialize(entity) {
+    if (!entity.isIdentified())
+      entity.createIdentity(this.generateIDComponents());
+    let id = entity[identifier];
+    let rawData = entity.dataClone();
+    return {
+      id,
+      rawData
+    };
+  }
+
+  _restore(entry) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this.entityClass, 'Handles need entity classes for deserialization');
+    return restore(entry, this.entityClass);
+  }
+
+  get type() {
+    return this._proxy._type;
+  }
+  get name() {
+    return this._proxy.name;
+  }
+
+  get _id() {
+    return this._proxy._id;
+  }
+
+  toManifestString() {
+    return `'${this._id}'`;
+  }
+}
+
+/** @class Collection
+ * A handle on a set of Entity data. Note that, as a set, a Collection can only
+ * contain a single version of an Entity for each given ID. Further, no order is
+ * implied by the set. A particle's manifest dictates the types of handles that
+ * need to be connected to that particle, and the current recipe identifies
+ * which handles are connected.
+ */
+class Collection extends Handle {
+  constructor(proxy, particleId, canRead, canWrite) {
+    // TODO: this should talk to an API inside the PEC.
+    super(proxy, particleId, canRead, canWrite);
+  }
+  query() {
+    // TODO: things
+  }
+  /** @method async toList()
+   * Returns a list of the Entities contained by the handle.
+   * throws: Error if this handle is not configured as a readable handle (i.e. 'in' or 'inout')
+     in the particle's manifest.
+   */
+  async toList() {
+    // TODO: remove this and use query instead
+    if (!this.canRead)
+      throw new Error('Handle not readable');
+    return (await this._proxy.toList(this._particleId)).map(a => this._restore(a));
+  }
+
+  /** @method store(entity)
+   * Stores a new entity into the Handle.
+   * throws: Error if this handle is not configured as a writeable handle (i.e. 'out' or 'inout')
+     in the particle's manifest.
+   */
+  async store(entity) {
+    if (!this.canWrite)
+      throw new Error('Handle not writeable');
+    let serialization = this._serialize(entity);
+    return this._proxy.store(serialization, this._particleId);
+  }
+
+  /** @method remove(entity)
+   * Removes an entity from the Handle.
+   * throws: Error if this handle is not configured as a writeable handle (i.e. 'out' or 'inout')
+     in the particle's manifest.
+   */
+  async remove(entity) {
+    if (!this.canWrite)
+      throw new Error('View not writeable');
+    let serialization = this._serialize(entity);
+    return this._proxy.remove(serialization.id, this._particleId);
+  }
+}
+
+/** @class Variable
+ * A handle on a single entity. A particle's manifest dictates
+ * the types of handles that need to be connected to that particle, and
+ * the current recipe identifies which handles are connected.
+ */
+class Variable extends Handle {
+  constructor(variable, canRead, canWrite, particleId) {
+    super(variable, canRead, canWrite, particleId);
+  }
+
+  /** @method async get()
+  * Returns the Entity contained by the Variable, or undefined if the Variable
+  * is cleared.
+  * throws: Error if this variable is not configured as a readable handle (i.e. 'in' or 'inout')
+    in the particle's manifest.
+   */
+  async get() {
+    if (!this.canRead)
+      throw new Error('View not readable');
+    let result = await this._proxy.get(this._particleId);
+    if (result == null)
+      return undefined;
+    if (this.type.isEntity)
+      return this._restore(result);
+    if (this.type.isInterface)
+      return __WEBPACK_IMPORTED_MODULE_5__particle_spec_js__["a" /* default */].fromLiteral(result);
+    return result;
+  }
+
+  /** @method set(entity)
+   * Stores a new entity into the Variable, replacing any existing entity.
+   * throws: Error if this variable is not configured as a writeable handle (i.e. 'out' or 'inout')
+     in the particle's manifest.
+   */
+  async set(entity) {
+    if (!this.canWrite)
+      throw new Error('View not writeable');
+    return this._proxy.set(this._serialize(entity), this._particleId);
+  }
+
+  /** @method clear()
+   * Clears any entity currently in the Variable.
+   * throws: Error if this variable is not configured as a writeable handle (i.e. 'out' or 'inout')
+     in the particle's manifest.
+   */
+  async clear() {
+    if (!this.canWrite)
+      throw new Error('View not writeable');
+    await this._proxy.clear(this._particleId);
+  }
+}
+
+function handleFor(proxy, isSet, particleId, canRead = true, canWrite = true) {
+  return (isSet || (isSet == undefined && proxy.type.isSetView))
+      ? new Collection(proxy, particleId, canRead, canWrite)
+      : new Variable(proxy, particleId, canRead, canWrite);
+}
+
+/* harmony default export */ __webpack_exports__["a"] = ({handleFor});
+
+
+/***/ }),
+/* 27 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__util_js__ = __webpack_require__(5);
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+
+
+
+class Search {
+  constructor(phrase, unresolvedTokens) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(phrase);
+
+    this._phrase = '';
+    this._unresolvedTokens = [];
+    this._resolvedTokens = [];
+
+    this.appendPhrase(phrase, unresolvedTokens);
+  }
+  appendPhrase(phrase, unresolvedTokens) {
+    // concat phrase
+    if (this._phrase.length > 0) {
+      this._phrase = this.phrase.concat(' ');
+    }
+    this._phrase = this._phrase.concat(phrase);
+
+    // update tokens
+    let newTokens = phrase.toLowerCase().split(/[^a-z0-9]/g);
+    newTokens.forEach(t => {
+      if (!unresolvedTokens || unresolvedTokens.indexOf(t) >= 0) {
+        this._unresolvedTokens.push(t);
+      } else {
+        this._resolvedTokens.push(t);
+      }
+    });
+  }
+  get phrase() { return this._phrase; }
+  get unresolvedTokens() { return this._unresolvedTokens; }
+  get resolvedTokens() { return this._resolvedTokens; }
+  resolveToken(token) {
+    let index = this.unresolvedTokens.indexOf(token.toLowerCase());
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(index >= 0, `Cannot resolved nonexistent token ${token}`);
+    this._unresolvedTokens.splice(index, 1);
+    this._resolvedTokens.push(token.toLowerCase());
+  }
+
+  isValid() {
+    return this._unresolvedTokens.length > 0 || this._resolvedTokens.length > 0;
+  }
+
+  isResolved() {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(Object.isFrozen(this));
+    // Recipe is considered resolved, if at least one of the search tokens was resolved.
+    // TODO: Unresolved tokens don't prevent the recipe from being resolved. For now...
+    return this._resolvedTokens.length > 0;
+  }
+
+  _normalize() {
+    this._unresolvedTokens.sort();
+    this._resolvedTokens.sort();
+
+    Object.freeze(this);
+  }
+
+  _copyInto(recipe) {
+    if (recipe.search) {
+      recipe.search.appendPhrase(this.phrase, this.unresolvedTokens);
+    } else {
+      recipe.search = new Search(this.phrase, this.unresolvedTokens);
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(recipe.search.resolvedTokens.length == this.resolvedTokens.length);
+    }
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this.resolvedTokens.every(rt => recipe.search.resolvedTokens.indexOf(rt) >= 0) &&
+           this.unresolvedTokens.every(rt => recipe.search.unresolvedTokens.indexOf(rt) >= 0));
+    return recipe.search;
+  }
+
+  toString(options) {
+    let result = [];
+    result.push(`search \`${this.phrase}\``);
+
+    let tokenStr = [];
+    tokenStr.push('  tokens');
+    if (this.unresolvedTokens.length > 0) {
+      tokenStr.push(this.unresolvedTokens.map(t => `\`${t}\``).join(' '));
+    }
+    if (this.resolvedTokens.length > 0) {
+      tokenStr.push(`// ${this.resolvedTokens.map(t => `\`${t}\``).join(' ')}`);
+    }
+    if (options && options.showUnresolved) {
+      if (this.unresolvedTokens.length > 0) {
+        tokenStr.push('// unresolved search tokens');
+      }
+    }
+    result.push(tokenStr.join(' '));
+
+    return result.join('\n');
+  }
+}
+
+/* harmony default export */ __webpack_exports__["a"] = (Search);
+
+
+/***/ }),
+/* 28 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__type_js__ = __webpack_require__(4);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__ = __webpack_require__(0);
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+
+
+
+class TypeChecker {
+
+  // list: [{type, direction, connection}]
+  static processTypeList(list) {
+    if (list.length == 0) {
+      return {type: {type: undefined}, valid: true};
+    }
+    let baseType = list[0];
+    let variableResolutions = [];
+    for (let i = 1; i < list.length; i++) {
+      let result = TypeChecker.compareTypes(baseType, list[i], variableResolutions);
+      baseType = result.type;
+      if (!result.valid) {
+        return {valid: false};
+      }
+    }
+
+    return {type: baseType, valid: true};
+  }
+
+  static restrictType(type, instance) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__["a" /* default */])(type.isInterface, `restrictType not implemented for ${type}`);
+
+    let shape = type.interfaceShape.restrictType(instance);
+    if (shape == false)
+      return false;
+    return __WEBPACK_IMPORTED_MODULE_0__type_js__["a" /* default */].newInterface(shape);
+  }
+
+  static _coerceTypes(left, right) {
+    let leftType = left.type;
+    let rightType = right.type;
+
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__["a" /* default */])(!leftType.hasVariableReference);
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__["a" /* default */])(!rightType.hasVariableReference);
+
+    while (leftType.isSetView && rightType.isSetView) {
+      leftType = leftType.primitiveType();
+      rightType = rightType.primitiveType();
+    }
+
+    leftType = leftType.resolvedType();
+    rightType = rightType.resolvedType();
+
+    if (leftType.equals(rightType))
+      return left;
+
+    // TODO: direction?
+    let type;
+    if (leftType.isVariable) {
+      leftType.variable.resolution = rightType;
+      type = right;
+    } else if (rightType.isVariable) {
+      rightType.variable.resolution = leftType;
+      type = left;
+    } else {
+      return null;
+    }
+    return type;
+  }
+
+  static isSubclass(subclass, superclass) {
+    let subtype = subclass.type;
+    let supertype = superclass.type;
+    while (subtype.isSetView && supertype.isSetView) {
+      subtype = subtype.primitiveType();
+      supertype = supertype.primitiveType();
+    }
+
+    if (!(subtype.isEntity && supertype.isEntity))
+      return false;
+
+    return subtype.entitySchema.contains(supertype.entitySchema);
+  }
+
+  // left, right: {type, direction, connection}
+  static compareTypes(left, right) {
+    if (left.type.equals(right.type)) {
+      return {type: left, valid: true};
+    }
+
+    let subclass;
+    let superclass;
+    if (TypeChecker.isSubclass(left, right)) {
+      subclass = left;
+      superclass = right;
+    } else if (TypeChecker.isSubclass(right, left)) {
+      subclass = right;
+      superclass = left;
+    }
+
+    // TODO: this arbitrarily chooses type restriction when
+    // super direction is 'in' and sub direction is 'out'. Eventually
+    // both possibilities should be encoded so we can maximise resolution
+    // opportunities
+    if (superclass) {
+      // treat view types as if they were 'inout' connections. Note that this
+      // guarantees that the view's type will be preserved, and that the fact
+      // that the type comes from a view rather than a connection will also
+      // be preserved.
+      let superDirection = superclass.connection ? superclass.connection.direction : 'inout';
+      let subDirection = subclass.connection ? subclass.connection.direction : 'inout';
+      if (superDirection == 'in') {
+        return {type: subclass, valid: true};
+      }
+      if (subDirection == 'out') {
+        return {type: superclass, valid: true};
+      }
+      return {valid: false};
+    }
+
+    let result = TypeChecker._coerceTypes(left, right);
+    if (result == null) {
+      return {valid: false};
+    }
+    // TODO: direction?
+    return {type: result, valid: true};
+  }
+
+  static substitute(type, variable, value) {
+    if (type.equals(variable))
+      return value;
+    if (type.isSetView)
+      return TypeChecker.substitute(type.primitiveType(), variable, value).setViewOf();
+    return type;
+  }
+}
+
+/* harmony default export */ __webpack_exports__["a"] = (TypeChecker);
+
+
+/***/ }),
+/* 29 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__symbols_js__ = __webpack_require__(13);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__entity_js__ = __webpack_require__(12);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__schema_js__ = __webpack_require__(8);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__type_js__ = __webpack_require__(4);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__relation_js__ = __webpack_require__(18);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+
+
+
+function testEntityClass(type) {
+  return new __WEBPACK_IMPORTED_MODULE_3__schema_js__["a" /* default */]({
+    name: type,
+    sections: [{
+      sectionType: 'normative',
+      fields: {'id': 'Number', 'value': 'Text'}
+    }],
+    parents: [],
+  }).entityClass();
+}
+
+let BasicEntity = testEntityClass('BasicEntity');
+
+/* unused harmony default export */ var _unused_webpack_default_export = ({
+  Entity: __WEBPACK_IMPORTED_MODULE_2__entity_js__["a" /* default */],
+  BasicEntity,
+  Relation: __WEBPACK_IMPORTED_MODULE_5__relation_js__["a" /* default */],
+  testing: {
+    testEntityClass,
+  },
+  internals: {
+    identifier: __WEBPACK_IMPORTED_MODULE_1__symbols_js__["a" /* default */].identifier,
+    Type: __WEBPACK_IMPORTED_MODULE_4__type_js__["a" /* default */],
+  }
+});
+
+
+/***/ }),
+/* 30 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+class Slot {
+  constructor(consumeConn, arc) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(consumeConn);
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(arc);
+    this._consumeConn = consumeConn;
+    this._arc = arc;
+    this._context = null;
+    this.startRenderCallback = null;
+    this.stopRenderCallback = null;
+    this._hostedSlotById = new Map();
+  }
+  get consumeConn() { return this._consumeConn; }
+  get arc() { return this._arc; }
+  getContext() { return this._context; }
+  setContext(context) { this._context = context; }
+  isSameContext(context) { return this._context == context; }
+
+  updateContext(context) {
+    // do nothing, if context unchanged.
+    if ((!this.getContext() && !context) ||
+        (this.getContext() && context && this.isSameContext(context))) {
+      return;
+    }
+
+    // update the context;
+    let wasNull = !this.getContext();
+    this.setContext(context);
+    if (this.getContext()) {
+      if (wasNull) {
+        this.startRender();
+      }
+    } else {
+      this.stopRender();
+    }
+  }
+  startRender() {
+    if (this.startRenderCallback) {
+      let contentTypes = this.constructRenderRequest();
+      this.startRenderCallback({particle: this.consumeConn.particle, slotName: this.consumeConn.name, contentTypes});
+
+      for (let hostedSlot of this._hostedSlotById.values()) {
+        if (hostedSlot.particle) {
+          // Note: hosted particle may still not be set, if the hosted slot was already created, but the inner recipe wasn't instantiate yet.
+          this.startRenderCallback({particle: hostedSlot.particle, slotName: hostedSlot.slotName, contentTypes});
+        }
+      }
+    }
+  }
+
+  stopRender() {
+    if (this.stopRenderCallback) {
+      this.stopRenderCallback({particle: this.consumeConn.particle, slotName: this.consumeConn.name});
+
+      for (let hostedSlot of this._hostedSlotById.values()) {
+        this.stopRenderCallback({particle: hostedSlot.particle, slotName: hostedSlot.slotName});
+      }
+    }
+  }
+
+  async populateViewDescriptions() {
+    let descriptions = {};
+    await Promise.all(Object.values(this.consumeConn.particle.connections).map(async viewConn => {
+      if (viewConn.view) {
+        descriptions[`${viewConn.name}.description`] = (await this._arc.description.getHandleDescription(viewConn.view)).toString();
+      }
+    }));
+    return descriptions;
+  }
+
+  addHostedSlot(hostedSlotId, hostedParticleName, hostedSlotName) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(hostedSlotId, `Hosted slot ID must be provided`);
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._hostedSlotById.has(hostedSlotId), `Hosted slot ${hostedSlotId} already exists`);
+    this._hostedSlotById.set(hostedSlotId, {slotId: hostedSlotId, particleName: hostedParticleName, slotName: hostedSlotName});
+    return hostedSlotId;
+  }
+  getHostedSlot(hostedSlotId) {
+    return this._hostedSlotById.get(hostedSlotId);
+  }
+  findHostedSlot(hostedParticle, hostedSlotName) {
+    for (let hostedSlot of this._hostedSlotById.values()) {
+      if (hostedSlot.particle == hostedParticle && hostedSlot.slotName == hostedSlotName) {
+        return hostedSlot;
+      }
+    }
+  }
+  initHostedSlot(hostedSlotId, hostedParticle) {
+    let hostedSlot = this.getHostedSlot(hostedSlotId);
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(hostedSlot, `Hosted slot ${hostedSlotId} doesn't exist`);
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(hostedSlot.particleName == hostedParticle.name,
+           `Unexpected particle name ${hostedParticle.name} for slot ${hostedSlotId}; expected: ${hostedSlot.particleName}`);
+    hostedSlot.particle = hostedParticle;
+    if (this.getContext() && this.startRenderCallback) {
+      this.startRenderCallback({particle: hostedSlot.particle, slotName: hostedSlot.slotName, contentTypes: this.constructRenderRequest()});
+    }
+  }
+
+  // absract
+  async setContent(content, handler) {}
+  getInnerContext(slotName) {}
+  constructRenderRequest() {}
+  static findRootSlots(context) { }
+}
+
+/* harmony default export */ __webpack_exports__["a"] = (Slot);
+
+
+/***/ }),
+/* 31 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+// @
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+
+class KeyBase {
+  childKeyForHandle(id) {
+    throw 'NotImplemented';
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = KeyBase;
+
+
+/***/ }),
+/* 32 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__tracelib_trace_js__ = __webpack_require__(6);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__ = __webpack_require__(5);
+// @
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+
+
+
+
+class StorageProviderBase {
+  constructor(type, arcId, name, id, key) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(id, 'id must be provided when constructing StorageProviders');
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!type.hasUnresolvedVariable, 'Storage types must be concrete');
+    let trace = __WEBPACK_IMPORTED_MODULE_1__tracelib_trace_js__["a" /* default */].start({cat: 'view', name: 'StorageProviderBase::constructor', args: {type: type.key, name: name}});
+    this._type = type;
+    this._arcId = arcId;
+    this._listeners = new Map();
+    this.name = name;
+    this._version = 0;
+    this.id = id;
+    this.source = null;
+    this._storageKey = key;
+    this._nextLocalID = 0;
+    trace.end();
+  }
+
+  get storageKey() {
+    return this._storageKey;
+  }
+
+  generateID() {
+    return `${this.id}:${this._nextLocalID++}`;
+  }
+
+  generateIDComponents() {
+    return {base: this.id, component: () => this._nextLocalID++};
+  }
+
+  get type() {
+    return this._type;
+  }
+  // TODO: add 'once' which returns a promise.
+  on(kind, callback, target) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(target !== undefined, 'must provide a target to register a storage event handler');
+    let scheduler = target._scheduler;
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(scheduler !== undefined, 'must provider a scheduler to register a storage event handler');
+    let listeners = this._listeners.get(kind) || new Map();
+    listeners.set(callback, {version: -Infinity, target, scheduler});
+    this._listeners.set(kind, listeners);
+  }
+
+  _fire(kind, details) {
+    let listenerMap = this._listeners.get(kind);
+    if (!listenerMap || listenerMap.size == 0)
+      return;
+
+    let callTrace = __WEBPACK_IMPORTED_MODULE_1__tracelib_trace_js__["a" /* default */].start({cat: 'view', name: 'StorageProviderBase::_fire', args: {kind, type: this._type.key,
+        name: this.name, listeners: listenerMap.size}});
+
+    // TODO: wire up a target (particle)
+    let eventRecords = new Map();
+
+    for (let [callback, registration] of listenerMap.entries()) {
+      let target = registration.target;
+      if (!eventRecords.has(registration.scheduler))
+        eventRecords.set(registration.scheduler, []);
+      eventRecords.get(registration.scheduler).push({target, callback, kind, details});
+    }
+    eventRecords.forEach((records, scheduler) => scheduler.enqueue(this, records));
+    callTrace.end();
+  }
+
+  _compareTo(other) {
+    let cmp;
+    if ((cmp = __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__["a" /* default */].compareStrings(this.name, other.name)) != 0) return cmp;
+    if ((cmp = __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__["a" /* default */].compareNumbers(this._version, other._version)) != 0) return cmp;
+    if ((cmp = __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__["a" /* default */].compareStrings(this.source, other.source)) != 0) return cmp;
+    if ((cmp = __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__["a" /* default */].compareStrings(this.id, other.id)) != 0) return cmp;
+    return 0;
+  }
+
+  toString(viewTags) {
+    let results = [];
+    let viewStr = [];
+    viewStr.push(`view`);
+    if (this.name) {
+      viewStr.push(`${this.name}`);
+    }
+    viewStr.push(`of ${this.type.toString()}`);
+    if (this.id) {
+      viewStr.push(`'${this.id}'`);
+    }
+    if (viewTags && viewTags.length) {
+      viewStr.push(`${[...viewTags].join(' ')}`);
+    }
+    if (this.source) {
+      viewStr.push(`in '${this.source}'`);
+    }
+    results.push(viewStr.join(' '));
+    if (this.description)
+      results.push(`  description \`${this.description}\``);
+    return results.join('\n');
+  }
+
+  get apiChannelMappingId() {
+    return this.id;
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = StorageProviderBase;
+
+
+
+/***/ }),
+/* 33 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__in_memory_storage_js__ = __webpack_require__(74);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__firebase_storage_js__ = __webpack_require__(73);
+// @
+// Copyright (c) 2017 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+
+
+
+
+class StorageProviderFactory {
+  constructor(arcId) {
+    this._arcId = arcId;
+    this._storageInstances = {'in-memory': new __WEBPACK_IMPORTED_MODULE_0__in_memory_storage_js__["a" /* default */](arcId), 'firebase': new __WEBPACK_IMPORTED_MODULE_1__firebase_storage_js__["a" /* default */](arcId)};
+  }
+
+  _storageForKey(key) {
+    let protocol = key.split(':')[0];
+    return this._storageInstances[protocol];
+  }
+
+  async construct(id, type, keyFragment) {
+    return this._storageForKey(keyFragment).construct(id, type, keyFragment);
+  }
+
+  async connect(id, type, key) {
+    return this._storageForKey(key).connect(id, type, key);
+  }
+
+  parseStringAsKey(string) {
+    return this._storageForKey(string).parseStringAsKey(string);
+  }
+
+  newKey(id, associatedKeyFragment) {
+
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = StorageProviderFactory;
+
+
+
+/***/ }),
+/* 34 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__dom_particle_js__ = __webpack_require__(15);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+
+
+// Regex to separate style and template.
+let re = /<style>((?:.|[\r\n])*)<\/style>((?:.|[\r\n])*)/;
+
+/** @class TransformationDomParticle
+ * Particle that does transformation stuff with DOM.
+ */
+class TransformationDomParticle extends __WEBPACK_IMPORTED_MODULE_1__dom_particle_js__["a" /* default */] {
+  getTemplate(slotName) {
+    return this._state.template;
+  }
+  _render(props, state) {
+    return state.renderModel;
+  }
+  _shouldRender(props, state) {
+    return Boolean(state.template && state.renderModel);
+  }
+
+  renderHostedSlot(slotName, hostedSlotId, content) {
+    this.combineHostedTemplate(slotName, hostedSlotId, content);
+    this.combineHostedModel(slotName, hostedSlotId, content);
+  }
+
+  // abstract
+  combineHostedTemplate(slotName, hostedSlotId, content) {}
+  combineHostedModel(slotName, hostedSlotId, content) {}
+
+  // Helper methods that may be reused in transformation particles to combine hosted content.
+  static combineTemplates(transformationTemplate, hostedTemplate) {
+    let transformationMatch = transformationTemplate.match(re);
+    if (!transformationMatch || transformationMatch.length != 3) {
+      return;
+    }
+    let hostedMatch = hostedTemplate.match(re);
+    if (!hostedMatch || hostedMatch.length != 3) {
+      return;
+    }
+
+    return `
+      <style>${transformationMatch[1].trim()}${hostedMatch[1].trim()}</style>
+      ${transformationMatch[2].trim().replace('{{hostedParticle}}', hostedMatch[2].trim())}
+    `;
+  }
+  static propsToItems(propsValues) {
+    return propsValues ? propsValues.map(({rawData, id}) => Object.assign({}, rawData, {subId: id})) : [];
+  }
+}
+
+/* harmony default export */ __webpack_exports__["a"] = (TransformationDomParticle);
+
+
+/***/ }),
+/* 35 */
 /***/ (function(module, exports) {
 
 // shim for using process in browser
@@ -4754,7 +6475,7 @@ process.umask = function() { return 0; };
 
 
 /***/ }),
-/* 23 */
+/* 36 */
 /***/ (function(module, exports) {
 
 var g;
@@ -4781,1861 +6502,26 @@ module.exports = g;
 
 
 /***/ }),
-/* 24 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-/* harmony default export */ __webpack_exports__["a"] = ({});
-
-
-/***/ }),
-/* 25 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return PECOuterPort; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return PECInnerPort; });
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__particle_spec_js__ = __webpack_require__(9);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__type_js__ = __webpack_require__(4);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__ = __webpack_require__(53);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-
-
-class ThingMapper {
-  constructor(prefix) {
-    this._prefix = prefix;
-    this._nextIdentifier = 0;
-    this._idMap = new Map();
-    this._reverseIdMap = new Map();
-  }
-
-  _newIdentifier() {
-    return this._prefix + (this._nextIdentifier++);
-  }
-
-  createMappingForThing(thing) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._reverseIdMap.has(thing));
-    let id = this._newIdentifier();
-    this.establishThingMapping(id, thing);
-    return id;
-  }
-
-  maybeCreateMappingForThing(thing) {
-    if (this.hasMappingForThing(thing)) {
-      return this.identifierForThing(thing);
-    }
-    return this.createMappingForThing(thing);
-  }
-
-  async establishThingMapping(id, thing) {
-    let continuation;
-    if (Array.isArray(thing)) {
-      [thing, continuation] = thing;
-    }
-    this._idMap.set(id, thing);
-    if (thing instanceof Promise) {
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(continuation == null);
-      await this.establishThingMapping(id, await thing);
-    } else {
-      this._reverseIdMap.set(thing, id);
-      if (continuation) {
-        await continuation();
-      }
-    }
-  }
-
-  hasMappingForThing(thing) {
-    return this._reverseIdMap.has(thing);
-  }
-
-  identifierForThing(thing) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._reverseIdMap.has(thing), `Missing thing ${thing}`);
-    return this._reverseIdMap.get(thing);
-  }
-
-  thingForIdentifier(id) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._idMap.has(id), `Missing id: ${id}`);
-    return this._idMap.get(id);
-  }
-}
-
-
-class APIPort {
-  constructor(messagePort, prefix) {
-    this._port = messagePort;
-    this._mapper = new ThingMapper(prefix);
-    this._messageMap = new Map();
-    this._port.onmessage = async e => this._handle(e);
-    this._debugAttachment = null;
-    this.messageCount = 0;
-
-    this.Direct = {
-      convert: a => a,
-      unconvert: a => a
-    };
-
-    this.Stringify = {
-      convert: a => a.toString(),
-      unconvert: a => eval(a)
-    };
-
-    this.LocalMapped = {
-      convert: a => this._mapper.maybeCreateMappingForThing(a),
-      unconvert: a => this._mapper.thingForIdentifier(a)
-    };
-
-    this.Mapped = {
-      convert: a => this._mapper.identifierForThing(a),
-      unconvert: a => this._mapper.thingForIdentifier(a)
-    };
-
-    this.Dictionary = function(primitive) {
-      return {
-        convert: a => {
-          let r = {};
-          for (let key in a) {
-            r[key] = primitive.convert(a[key]);
-          }
-          return r;
-        }
-      };
-    };
-
-    this.Map = function(keyprimitive, valueprimitive) {
-      return {
-        convert: a => {
-          let r = {};
-          a.forEach((value, key) => r[keyprimitive.convert(key)] = valueprimitive.convert(value));
-          return r;
-        },
-        unconvert: a => {
-          let r = new Map();
-          for (let key in a)
-            r.set(keyprimitive.unconvert(key), valueprimitive.unconvert(a[key]));
-          return r;
-        }
-      };
-    };
-
-    this.List = function(primitive) {
-      return {
-        convert: a => a.map(v => primitive.convert(v)),
-        unconvert: a => a.map(v => primitive.unconvert(v))
-      };
-    };
-
-    this.ByLiteral = function(clazz) {
-      return {
-        convert: a => a.toLiteral(),
-        unconvert: a => clazz.fromLiteral(a)
-      };
-    };
-  }
-
-  close() {
-    this._port.close();
-  }
-
-  async _handle(e) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._messageMap.has(e.data.messageType));
-
-    this.messageCount++;
-
-    let handler = this._messageMap.get(e.data.messageType);
-    let args;
-    try {
-      args = this._unprocessArguments(handler.args, e.data.messageBody);
-    } catch (exc) {
-      console.error(`Exception during unmarshaling for ${e.data.messageType}`);
-      throw exc;
-    }
-    // If any of the converted arguments are still pending promises
-    // wait for them to complete before processing the message.
-    for (let arg of Object.values(args)) {
-      if (arg instanceof Promise) {
-        arg.then(() => this._handle(e));
-        return;
-      }
-    }
-    let handlerName = 'on' + e.data.messageType;
-    let result = this[handlerName](args);
-    if (this._debugAttachment && this._debugAttachment[handlerName]) {
-      this._debugAttachment[handlerName](args);
-    }
-    if (handler.isInitializer) {
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(args.identifier);
-      await this._mapper.establishThingMapping(args.identifier, result);
-    }
-  }
-
-  _processArguments(argumentTypes, args) {
-    let messageBody = {};
-    for (let argument in argumentTypes)
-      messageBody[argument] = argumentTypes[argument].convert(args[argument]);
-    return messageBody;
-  }
-
-  _unprocessArguments(argumentTypes, args) {
-    let messageBody = {};
-    for (let argument in argumentTypes)
-      messageBody[argument] = argumentTypes[argument].unconvert(args[argument]);
-    return messageBody;
-  }
-
-  registerCall(name, argumentTypes) {
-    this[name] = args => {
-      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
-      this._port.postMessage(call);
-      if (this._debugAttachment && this._debugAttachment[name]) {
-        this._debugAttachment[name](args);
-      }
-    };
-  }
-
-  registerHandler(name, argumentTypes) {
-    this._messageMap.set(name, {args: argumentTypes});
-  }
-
-  registerInitializerHandler(name, argumentTypes) {
-    argumentTypes.identifier = this.Direct;
-    this._messageMap.set(name, {
-      isInitializer: true,
-      args: argumentTypes,
-    });
-  }
-
-  registerInitializer(name, argumentTypes) {
-    this[name] = (thing, args) => {
-      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
-      call.messageBody.identifier = this._mapper.createMappingForThing(thing);
-      this._port.postMessage(call);
-      if (this._debugAttachment && this._debugAttachment[name]) {
-        this._debugAttachment[name](thing, args);
-      }
-    };
-  }
-
-  registerRedundantInitializer(name, argumentTypes) {
-    this[name] = (thing, args) => {
-      if (this._mapper.hasMappingForThing(thing))
-        return;
-      let call = {messageType: name, messageBody: this._processArguments(argumentTypes, args)};
-      call.messageBody.identifier = this._mapper.createMappingForThing(thing);
-      this._port.postMessage(call);
-      if (this._debugAttachment && this._debugAttachment[name]) {
-        this._debugAttachment[name](thing, args);
-      }
-    };
-  }
-
-  initDebug(arcId) {
-    if (!this._debugAttachment) this._debugAttachment = new __WEBPACK_IMPORTED_MODULE_3__debug_outer_port_attachment_js__["a" /* default */](arcId);
-  }
-}
-
-class PECOuterPort extends APIPort {
-  constructor(messagePort) {
-    super(messagePort, 'o');
-
-    this.registerCall('Stop', {});
-    this.registerCall('DefineParticle',
-      {particleDefinition: this.Direct, particleFunction: this.Stringify});
-    this.registerRedundantInitializer('DefineHandle', {type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
-    this.registerInitializer('InstantiateParticle',
-      {id: this.Direct, spec: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_1__particle_spec_js__["a" /* default */]), handles: this.Map(this.Direct, this.Mapped)});
-
-    this.registerCall('UIEvent', {particle: this.Mapped, slotName: this.Direct, event: this.Direct});
-    this.registerCall('SimpleCallback', {callback: this.Direct, data: this.Direct});
-    this.registerCall('AwaitIdle', {version: this.Direct});
-    this.registerCall('StartRender', {particle: this.Mapped, slotName: this.Direct, contentTypes: this.List(this.Direct)});
-    this.registerCall('StopRender', {particle: this.Mapped, slotName: this.Direct});
-
-    this.registerHandler('Render', {particle: this.Mapped, slotName: this.Direct, content: this.Direct});
-    this.registerHandler('Synchronize', {handle: this.Mapped, target: this.Mapped,
-                                    type: this.Direct, callback: this.Direct,
-                                    modelCallback: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleGet', {handle: this.Mapped, callback: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleToList', {handle: this.Mapped, callback: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleSet', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleStore', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
-    this.registerHandler('HandleRemove', {handle: this.Mapped, data: this.Direct});
-    this.registerHandler('HandleClear', {handle: this.Mapped});
-    this.registerHandler('Idle', {version: this.Direct, relevance: this.Map(this.Mapped, this.Direct)});
-
-    this.registerHandler('ConstructInnerArc', {callback: this.Direct, particle: this.Mapped});
-    this.registerCall('ConstructArcCallback', {callback: this.Direct, arc: this.LocalMapped});
-
-    this.registerHandler('ArcCreateHandle', {callback: this.Direct, arc: this.LocalMapped, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
-    this.registerInitializer('CreateHandleCallback', {callback: this.Direct, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct, id: this.Direct});
-
-    this.registerHandler('ArcMapHandle', {callback: this.Direct, arc: this.LocalMapped, handle: this.Mapped});
-    this.registerInitializer('MapHandleCallback', {callback: this.Direct, id: this.Direct});
-
-    this.registerHandler('ArcCreateSlot',
-      {callback: this.Direct, arc: this.LocalMapped, transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedParticleName: this.Direct, hostedSlotName: this.Direct});
-    this.registerInitializer('CreateSlotCallback', {callback: this.Direct, hostedSlotId: this.Direct});
-    this.registerCall('InnerArcRender', {transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedSlotId: this.Direct, content: this.Direct});
-
-    this.registerHandler('ArcLoadRecipe', {arc: this.LocalMapped, recipe: this.Direct, callback: this.Direct});
-  }
-}
-
-class PECInnerPort extends APIPort {
-  constructor(messagePort) {
-    super(messagePort, 'i');
-
-    this.registerHandler('Stop', {});
-    // particleFunction needs to be eval'd in context or it won't work.
-    this.registerHandler('DefineParticle',
-      {particleDefinition: this.Direct, particleFunction: this.Direct});
-    this.registerInitializerHandler('DefineHandle', {type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
-    this.registerInitializerHandler('InstantiateParticle',
-      {id: this.Direct, spec: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_1__particle_spec_js__["a" /* default */]), handles: this.Map(this.Direct, this.Mapped)});
-
-    this.registerHandler('UIEvent', {particle: this.Mapped, slotName: this.Direct, event: this.Direct});
-    this.registerHandler('SimpleCallback', {callback: this.LocalMapped, data: this.Direct});
-    this.registerHandler('AwaitIdle', {version: this.Direct});
-    this.registerHandler('StartRender', {particle: this.Mapped, slotName: this.Direct, contentTypes: this.Direct});
-    this.registerHandler('StopRender', {particle: this.Mapped, slotName: this.Direct});
-
-    this.registerCall('Render', {particle: this.Mapped, slotName: this.Direct, content: this.Direct});
-    this.registerCall('Synchronize', {handle: this.Mapped, target: this.Mapped,
-                                 type: this.Direct, callback: this.LocalMapped,
-                                 modelCallback: this.LocalMapped, particleId: this.Direct});
-    this.registerCall('HandleGet', {handle: this.Mapped, callback: this.LocalMapped, particleId: this.Direct});
-    this.registerCall('HandleToList', {handle: this.Mapped, callback: this.LocalMapped, particleId: this.Direct});
-    this.registerCall('HandleSet', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
-    this.registerCall('HandleStore', {handle: this.Mapped, data: this.Direct, particleId: this.Direct});
-    this.registerCall('HandleRemove', {handle: this.Mapped, data: this.Direct});
-    this.registerCall('HandleClear', {handle: this.Mapped});
-    this.registerCall('Idle', {version: this.Direct, relevance: this.Map(this.Mapped, this.Direct)});
-
-    this.registerCall('ConstructInnerArc', {callback: this.LocalMapped, particle: this.Mapped});
-    this.registerHandler('ConstructArcCallback', {callback: this.LocalMapped, arc: this.Direct});
-
-    this.registerCall('ArcCreateHandle', {callback: this.LocalMapped, arc: this.Direct, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct});
-    this.registerInitializerHandler('CreateHandleCallback', {callback: this.LocalMapped, type: this.ByLiteral(__WEBPACK_IMPORTED_MODULE_2__type_js__["a" /* default */]), name: this.Direct, id: this.Direct});
-    this.registerCall('ArcMapHandle', {callback: this.LocalMapped, arc: this.Direct, handle: this.Mapped});
-    this.registerInitializerHandler('MapHandleCallback', {callback: this.LocalMapped, id: this.Direct});
-    this.registerCall('ArcCreateSlot',
-      {callback: this.LocalMapped, arc: this.Direct, transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedParticleName: this.Direct, hostedSlotName: this.Direct});
-    this.registerInitializerHandler('CreateSlotCallback', {callback: this.LocalMapped, hostedSlotId: this.Direct});
-    this.registerHandler('InnerArcRender', {transformationParticle: this.Mapped, transformationSlotName: this.Direct, hostedSlotId: this.Direct, content: this.Direct});
-
-    this.registerCall('ArcLoadRecipe', {arc: this.Direct, recipe: this.Direct, callback: this.LocalMapped});
-  }
-}
-
-
-/* unused harmony default export */ var _unused_webpack_default_export = ({PECOuterPort, PECInnerPort});
-
-
-/***/ }),
-/* 26 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-let nob = () => Object.create(null);
-
-/* harmony default export */ __webpack_exports__["a"] = (Base => class extends Base {
-  constructor() {
-    super();
-    this._pendingProps = nob();
-    this._props = this._getInitialProps() || nob();
-    this._lastProps = nob();
-    this._state = this._getInitialState() || nob();
-    this._lastState = nob();
-  }
-  _getInitialProps() {
-  }
-  _getInitialState() {
-  }
-  _getProperty(name) {
-    return this._pendingProps[name] || this._props[name];
-  }
-  _setProperty(name, value) {
-    // dirty checking opportunity
-    if (this._validator || this._wouldChangeProp(name, value)) {
-      this._pendingProps[name] = value;
-      this._invalidateProps();
-    }
-  }
-  _wouldChangeProp(name, value) {
-    return (typeof value === 'object') || (this._props[name] !== value);
-  }
-  _setProps(props) {
-    // TODO(sjmiles): should this be a replace instead of a merge?
-    Object.assign(this._pendingProps, props);
-    this._invalidateProps();
-  }
-  _invalidateProps() {
-    this._propsInvalid = true;
-    this._invalidate();
-  }
-  _setState(state) {
-    Object.assign(this._state, state);
-    this._invalidate();
-  }
-  _async(fn) {
-    // TODO(sjmiles): SystemJS throws unless `Promise` is `window.Promise`
-    return Promise.resolve().then(fn.bind(this));
-    //return setTimeout(fn.bind(this), 10);
-  }
-  _invalidate() {
-    if (!this._validator) {
-      //this._log('register _async validate');
-      //console.log(this.localName + (this.id ? '#' + this.id : '') + ': invalidated');
-      this._validator = this._async(this._validate);
-    }
-  }
-  _validate() {
-    // try..catch to ensure we nullify `validator` before return
-    try {
-      // TODO(sjmiles): should this be a replace instead of a merge?
-      Object.assign(this._props, this._pendingProps);
-      if (this._propsInvalid) {
-        // TODO(sjmiles): should/can have different timing from rendering?
-        this._willReceiveProps(this._props, this._state, this._lastProps);
-        this._propsInvalid = false;
-      }
-      if (this._shouldUpdate(this._props, this._state, this._lastProps, this._lastState)) {
-        // TODO(sjmiles): consider throttling render to rAF
-        this._ensureMount();
-        this._update(this._props, this._state, this._lastProps);
-      }
-    } catch (x) {
-      console.error(x);
-    }
-    // nullify validator _after_ methods so state changes don't reschedule validation
-    // TODO(sjmiles): can/should there ever be state changes fom inside _update()? In React no, in Xen yes (until I have a good reason not too).
-    this._validator = null;
-    // save the old props and state
-    // TODO(sjmiles): don't need to create these for default _shouldUpdate
-    this._lastProps = Object.assign(nob(), this._props);
-    //this._lastState = Object.assign(nob(), this._state);
-    this._didUpdate(this._props, this._state);
-  }
-  _ensureMount() {
-  }
-  _willReceiveProps(props, state) {
-  }
-  /*
-  _willReceiveState(props, state) {
-  }
-  */
-  _shouldUpdate(props, state, lastProps) {
-    return true;
-  }
-  _update(props, state) {
-  }
-  _didUpdate(props, state) {
-  }
-});
-
-
-/***/ }),
-/* 27 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/*
-@license
-Copyright (c) 2016 The Polymer Project Authors. All rights reserved.
-This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
-The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
-The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
-Code distributed by Google as part of the polymer project is also
-subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
-*/
-/* harmony default export */ __webpack_exports__["a"] = ((scope => {
-
-'use strict';
-
-if (typeof document !== 'undefined' && !('currentImport' in document)) {
-  Object.defineProperty(document, 'currentImport', {
-    get() {
-      return (document._currentScript || document.currentScript || document).ownerDocument;
-    }
-  });
-}
-
-/* Annotator */
-// tree walker that generates arbitrary data using visitor function `cb`
-// `cb` is called as `cb(node, key, notes)`
-// where
-//   `node` is a visited node.
-//   `key` is a handle which identifies the node in a map generated by `Annotator.locateNodes`.
-class Annotator {
-  constructor(cb) {
-    this.cb = cb;
-  }
-  // For subtree at `node`, produce annotation object `notes`.
-  // the content of `notes` is completely determined by the behavior of the
-  // annotator callback function supplied at the constructor.
-  annotate(node, notes, opts) {
-    this.notes = notes;
-    this.opts = opts || 0;
-    this.key = this.opts.key || 0;
-    notes.locator = this._annotateSubtree(node);
-    //console.log('notes:', notes);
-    return notes;
-  }
-  // walking subtree at `node`
-  _annotateSubtree(node) {
-    let childLocators;
-    for (let i = 0, child = node.firstChild, previous = null, neo; child; i++) {
-      // returns a locator only if a node in the subtree requires one
-      let childLocator = this._annotateNode(child);
-      // only when necessary, maintain a sparse array of locators
-      if (childLocator) {
-        (childLocators = childLocators || {})[i] = childLocator;
-      }
-      // `child` may have been evacipated by visitor
-      neo = previous ? previous.nextSibling : node.firstChild;
-      if (neo === child) {
-        previous = child;
-        child = child.nextSibling;
-      } else {
-        child = neo;
-        i--;
-      }
-    }
-    // is falsey unless there was at least one childLocator
-    return childLocators;
-  }
-  _annotateNode(node) {
-    // visit node
-    let key = this.key++;
-    let shouldLocate = this.cb(node, key, this.notes, this.opts);
-    // recurse
-    //console.group(node.localName||'#text');
-    let locators = this._annotateSubtree(node);
-    //console.groupEnd();
-    if (shouldLocate || locators) {
-      //console.log('capturing', key, '('+(node.localName||'#text')+')');
-      let cl = Object.create(null);
-      cl.key = key;
-      if (locators) {
-        cl.sub = locators;
-      }
-      return cl;
-    }
-  }
-}
-
-let locateNodes = function(root, locator, map) {
-  map = map || [];
-  for (let n in locator) {
-    let loc = locator[n];
-    if (loc) {
-      let node = root.childNodes[n];
-      if (node.nodeType == Node.TEXT_NODE && node.parentElement) {
-        // TODO(mmandlis): remove this line and the (property === 'textContent') clause
-        // in _set() method, in favor of explicit innerHTML binding.
-        map[loc.key] = node.parentElement;
-      } else {
-        map[loc.key] = node;
-      }
-      if (loc.sub) {
-        // recurse
-        locateNodes(node, loc.sub, map);
-      }
-    }
-  }
-  return map;
-};
-
-/* Annotation Producer */
-// must return `true` for any node whose key we wish to track
-let annotatorImpl = function(node, key, notes, opts) {
-  // hook
-  if (opts.annotator && opts.annotator(node, key, notes, opts)) {
-    return true;
-  }
-  // default
-  switch (node.nodeType) {
-    case Node.DOCUMENT_FRAGMENT_NODE:
-      return;
-    case Node.ELEMENT_NODE:
-      return annotateElementNode(node, key, notes);
-    case Node.TEXT_NODE:
-      return annotateTextNode(node, key, notes);
-  }
-};
-
-let annotateTextNode = function(node, key, notes) {
-  if (annotateMustache(node, key, notes, 'textContent', node.textContent)) {
-    node.textContent = '';
-    return true;
-  }
-};
-
-let annotateElementNode = function(node, key, notes) {
-  if (node.hasAttributes()) {
-    let noted = false;
-    for (let a$ = node.attributes, i = a$.length - 1, a; i >= 0 && (a = a$[i]); i--) {
-      if (
-        annotateEvent(node, key, notes, a.name, a.value) ||
-        annotateMustache(node, key, notes, a.name, a.value)
-      ) {
-        node.removeAttribute(a.name);
-        noted = true;
-      }
-    }
-    return noted;
-  }
-};
-
-let annotateMustache = function(node, key, notes, property, value) {
-  if (value.slice(0, 2) === '{{') {
-    if (property === 'class') {
-      property = 'className';
-    }
-    let n = value.slice(2, -2);
-    takeNote(notes, key, 'mustaches', property, n);
-    if (n[0] === '$') {
-      takeNote(notes, 'xlate', n, true);
-    }
-    return true;
-  }
-};
-
-let annotateEvent = function(node, key, notes, name, value) {
-  if (name.slice(0, 3) === 'on-') {
-    if (value.slice(0, 2) === '{{') {
-      value = value.slice(2, -2);
-      console.warn(
-        `Xen: event handler for '${name}' expressed as a mustache, which is not supported. Using literal value '${value}' instead.`
-      );
-    }
-    takeNote(notes, key, 'events', name.slice(3), value);
-    return true;
-  }
-};
-
-let takeNote = function(notes, key, group, name, note) {
-  let n$ = notes[key] || (notes[key] = Object.create(null));
-  (n$[group] || (n$[group] = {}))[name] = note;
-  //console.log('[%s]::%s.{{%s}}:', key, group, name, note);
-};
-
-let annotator = new Annotator(annotatorImpl);
-
-let annotate = function(root, key, opts) {
-  return (root._notes ||
-    (root._notes = annotator.annotate(root.content, {/*ids:{}*/}, key, opts))
-  );
-};
-
-/* Annotation Consumer */
-let mapEvents = function(notes, map, mapper) {
-  // add event listeners
-  for (let key in notes) {
-    let node = map[key];
-    let events = notes[key] && notes[key].events;
-    if (node && events) {
-      for (let name in events) {
-        mapper(node, name, events[name]);
-      }
-    }
-  }
-};
-
-let listen = function(controller, node, eventName, handlerName) {
-  node.addEventListener(eventName, function(e) {
-    if (controller[handlerName]) {
-      return controller[handlerName](e, e.detail);
-    }
-  });
-};
-
-let set = function(notes, map, scope, controller) {
-  if (scope) {
-    for (let key in notes) {
-      let node = map[key];
-      if (node) {
-        // everybody gets a scope
-        node.scope = scope;
-        // now get your regularly scheduled bindings
-        let mustaches = notes[key].mustaches;
-        for (let name in mustaches) {
-          let property = mustaches[name];
-          if (property in scope) {
-            _set(node, name, scope[property], controller);
-          }
-        }
-      }
-    }
-  }
-};
-
-let _set = function(node, property, value, controller) {
-  let modifier = property.slice(-1);
-  //console.log('_set: %s, %s, '%s'', node.localName || '(text)', property, value);
-  if (property === 'style%' || property === 'style') {
-    if (typeof value === 'string') {
-      node.style.cssText = value;
-    } else {
-      Object.assign(node.style, value);
-    }
-  } else if (modifier == '$') {
-    let n = property.slice(0, -1);
-    if (typeof value === 'boolean') {
-      setBoolAttribute(node, n, value);
-    } else {
-      node.setAttribute(n, value);
-    }
-  } else if (property === 'textContent') {
-    if (value && (value.$template || value.template)) {
-      _setSubTemplate(node, value, controller);
-    } else {
-      node.textContent = (value || '');
-    }
-  } else if (property === 'unsafe-html') {
-    node.innerHTML = value || '';
-  } else {
-    node[property] = value;
-  }
-};
-
-let _setSubTemplate = function(node, value, controller) {
-  // TODO(sjmiles): sub-template iteration ability
-  // specially implemented to support arcs (serialization boundary)
-  // Aim to re-implement as a plugin.
-  let template = value.template;
-  if (!template) {
-    let container = node.getRootNode(); //node.parentElement
-    template = container.querySelector(`template[${value.$template}]`);
-  }
-  node.textContent = '';
-  if (template && value.models) {
-    for (let m of value.models) {
-      stamp(template).events(controller).set(m).appendTo(node);
-    }
-  }
-};
-
-let setBoolAttribute = function(node, attr, state) {
-  node[
-    (state === undefined ? !node.hasAttribute(attr) : state)
-      ? 'setAttribute'
-      : 'removeAttribute'
-  ](attr, '');
-};
-
-let stamp = function(template, opts) {
-  // construct (or use memoized) notes
-  let notes = annotate(template, opts);
-  // CRITICAL TIMING ISSUE #1:
-  // importNode can have side-effects, like CustomElement callbacks (before we
-  // can do any work on the imported subtree, before we can mapEvents, e.g.).
-  // we could clone into an inert document (say a new template) and process the nodes
-  // before importing if necessary.
-  let root = document.importNode(template.content, true);
-  // map DOM to keys
-  let map = locateNodes(root, notes.locator);
-  // return dom manager
-  let dom = {
-    root: root,
-    notes: notes,
-    map: map,
-    $(slctr) {
-      return this.root.querySelector(slctr);
-    },
-    set: function(scope) {
-      set(notes, map, scope, this.controller);
-      return this;
-    },
-    events: function(controller) {
-      // TODO(sjmiles): originally `controller` was expected to be an Object with event handler
-      // methods on it (typically a custom-element stamping a template).
-      // In Arcs, we want to attach a generic handler (Function) for any event on this node.
-      // Subtemplate stamping gets involved because they need to reuse whichever controller.
-      // I suspect this can be simplified, but right now I'm just making it go.
-      if (controller && typeof controller !== 'function') {
-        controller = listen.bind(this, controller);
-      }
-      this.controller = controller;
-      if (controller) {
-        mapEvents(notes, map, controller);
-      }
-      return this;
-    },
-    appendTo: function(node) {
-      if (this.root) {
-        // TODO(sjmiles): assumes this.root is a fragment
-        node.appendChild(this.root);
-      } else {
-        console.warn('Xen: cannot appendTo, template stamped no DOM');
-      }
-      // TODO(sjmiles): this.root is no longer a fragment
-      this.root = node;
-      return this;
-    }
-  };
-  return dom;
-};
-
-return {
-  setBoolAttribute,
-  stamp
-};
-
-})());
-
-
-/***/ }),
-/* 28 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return DomContext; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return SetDomContext; });
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__browser_lib_xen_template_js__ = __webpack_require__(27);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__browser_lib_x_list_js__ = __webpack_require__(48);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__browser_lib_model_select_js__ = __webpack_require__(47);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-// TODO(sjmiles): should be elsewhere
-// TODO(sjmiles): using Node syntax to import custom-elements in strictly-browser context
-// TOOD(dstockwell): why was this only in browser context?
-
-
-
-class DomContext {
-  constructor(context, containerKind) {
-    this._context = context;
-    this._containerKind = containerKind;
-    // TODO(sjmiles): _liveDom needs new name
-    this._liveDom = null;
-    this._innerContextBySlotName = {};
-  }
-  static createContext(context, content) {
-    let domContext = new DomContext(context);
-    domContext.stampTemplate(DomContext.createTemplateElement(content.template), () => {});
-    domContext.updateModel(content.model);
-    return domContext;
-  }
-  initContext(context) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(context);
-    if (!this._context) {
-      this._context = document.createElement(this._containerKind || 'div');
-      context.appendChild(this._context);
-    } else {
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this._context.parentNode == context,
-             'TODO: add support for moving slot to different context');
-    }
-  }
-  get context() { return this._context; }
-  isEqual(context) {
-    return this._context.parentNode == context;
-  }
-  updateModel(model) {
-    if (this._liveDom) {
-      this._liveDom.set(model);
-    }
-  }
-  clear() {
-    if (this._liveDom) {
-      this._liveDom.root.textContent = '';
-    }
-    this._liveDom = null;
-    this._innerContextBySlotName = {};
-
-  }
-  static createTemplateElement(template) {
-    return Object.assign(document.createElement('template'), {innerHTML: template});
-  }
-  stampTemplate(template, eventHandler) {
-    if (!this._liveDom) {
-      // TODO(sjmiles): hack to allow subtree elements (e.g. x-list) to marshal events
-      this._context._eventMapper = this._eventMapper.bind(this, eventHandler);
-      this._liveDom = __WEBPACK_IMPORTED_MODULE_1__browser_lib_xen_template_js__["a" /* default */]
-          .stamp(template)
-          .events(this._context._eventMapper)
-          .appendTo(this._context);
-    }
-  }
-  observe(observer) {
-    observer.observe(this._context, {childList: true, subtree: true});
-  }
-  getInnerContext(innerSlotName) {
-    return this._innerContextBySlotName[innerSlotName];
-  }
-  isDirectInnerSlot(slot) {
-    let parentNode = slot.parentNode;
-    while (parentNode) {
-      if (parentNode == this._context) {
-        return true;
-      }
-      if (parentNode.getAttribute('slotid')) {
-        // this is an inner slot of an inner slot.
-        return false;
-      }
-      parentNode = parentNode.parentNode;
-    }
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(false);
-  }
-  initInnerContexts(slotSpec) {
-    this._innerContextBySlotName = {};
-    Array.from(this._context.querySelectorAll('[slotid]')).forEach(s => {
-      if (!this.isDirectInnerSlot(s)) {
-        // Skip inner slots of an inner slot of the given slot.
-        return;
-      }
-      let slotId = s.getAttribute('slotid');
-      let providedSlotSpec = slotSpec.providedSlots.find(ps => ps.name == slotId);
-      if (providedSlotSpec) { // Skip non-declared slots
-        let subId = s.subid;
-        __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!subId || providedSlotSpec.isSet,
-            `Slot provided in ${slotSpec.name} sub-id ${subId} doesn't match set spec: ${providedSlotSpec.isSet}`);
-        if (providedSlotSpec.isSet) {
-          if (!this._innerContextBySlotName[slotId]) {
-            this._innerContextBySlotName[slotId] = {};
-          }
-          __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._innerContextBySlotName[slotId][subId],
-                 `Slot ${slotSpec.name} cannot provide multiple ${slotId}:${subId} inner slots`);
-          this._innerContextBySlotName[slotId][subId] = s;
-        } else {
-          this._innerContextBySlotName[slotId] = s;
-        }
-      } else {
-        console.warn(`Slot ${slotSpec.name} has unexpected inner slot ${slotId}`);
-      }
-    });
-  }
-  findRootSlots() {
-    let innerSlotById = {};
-    Array.from(this._context.querySelectorAll('[slotid]')).forEach(s => {
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this.isDirectInnerSlot(s), 'Unexpected inner slot');
-      let slotId = s.getAttribute('slotid');
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!innerSlotById[slotId], `Duplicate root slot ${slotId}`);
-      innerSlotById[slotId] = s;
-    });
-    return innerSlotById;
-  }
-  _eventMapper(eventHandler, node, eventName, handlerName) {
-    node.addEventListener(eventName, event => {
-      // TODO(sjmiles): we have an extremely minimalist approach to events here, this is useful IMO for
-      // finding the smallest set of features that we are going to need.
-      // First problem: click event firing multiple times as it bubbles up the tree, minimalist solution
-      // is to enforce a 'first listener' rule by executing `stopPropagation`.
-      event.stopPropagation();
-      eventHandler({
-        handler: handlerName,
-        data: {
-          key: node.key,
-          value: node.value
-        }
-      });
-    });
-  }
-}
-
-class SetDomContext {
-  constructor(containerKind) {
-    this._contextBySubId = {};
-    this._containerKind = containerKind;
-  }
-  initContext(context) {
-    Object.keys(context).forEach(subId => {
-      if (!this._contextBySubId[subId] || !this._contextBySubId[subId].isEqual(context[subId])) {
-        this._contextBySubId[subId] = new DomContext(null, this._containerKind);
-      }
-      this._contextBySubId[subId].initContext(context[subId]);
-    });
-    // Delete sub-contexts that are not found in the new context.
-    Object.keys(this._contextBySubId).forEach(subId => {
-      if (!context[subId]) {
-        delete this._contextBySubId[subId];
-      }
-    });
-  }
-  isEqual(context) {
-    return Object.keys(this._contextBySubId).length == Object.keys(context).length &&
-           !Object.keys(this._contextBySubId).find(c => this._contextBySubId[c] != context[c]);
-  }
-  updateModel(model) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(model.items, `Model must contain items`);
-    model.items.forEach(item => {
-      Object.keys(model).forEach(key => {
-        if (key != 'items') {
-          item[key] = model[key];
-        }
-      });
-      if (this._contextBySubId[item.subId]) {
-        this._contextBySubId[item.subId].updateModel(item);
-      }
-    });
-  }
-  clear() {
-    Object.values(this._contextBySubId).forEach(context => context.clear());
-  }
-  stampTemplate(template, eventHandler, eventMapper) {
-    Object.values(this._contextBySubId).forEach(context => context.stampTemplate(template, eventHandler, eventMapper));
-  }
-  observe(observer) {
-    Object.values(this._contextBySubId).forEach(context => context.observe(observer));
-  }
-  getInnerContext(innerSlotName) {
-    let innerContexts = {};
-    Object.keys(this._contextBySubId).forEach(subId => {
-      innerContexts[subId] = this._contextBySubId[subId].getInnerContext(innerSlotName);
-    });
-    return innerContexts;
-  }
-  initInnerContexts(slotSpec) {
-    Object.values(this._contextBySubId).forEach(context => context.initInnerContexts(slotSpec));
-  }
-}
-
-
-
-
-/***/ }),
-/* 29 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__identifier_js__ = __webpack_require__(58);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__entity_js__ = __webpack_require__(12);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__relation_js__ = __webpack_require__(18);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__symbols_js__ = __webpack_require__(13);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__particle_spec_js__ = __webpack_require__(9);
-/** @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-
-let identifier = __WEBPACK_IMPORTED_MODULE_3__symbols_js__["a" /* default */].identifier;
-
-
-
-// TODO: This won't be needed once runtime is transferred between contexts.
-function cloneData(data) {
-  return data;
-  //return JSON.parse(JSON.stringify(data));
-}
-
-function restore(entry, entityClass) {
-  let {id, rawData} = entry;
-  let entity = new entityClass(cloneData(rawData));
-  if (entry.id) {
-    entity.identify(entry.id);
-  }
-
-  // TODO some relation magic, somewhere, at some point.
-
-  return entity;
-}
-
-/** @class Handle
- * Base class for Views and Variables.
- */
-class Handle {
-  constructor(view, particleId, canRead, canWrite) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(!(view instanceof Handle));
-    this._view = view;
-    this.canRead = canRead;
-    this.canWrite = canWrite;
-    this._particleId = particleId;
-  }
-  underlyingView() {
-    return this._view;
-  }
-  /** @method on(kind, callback, target)
-   * Register for callbacks every time the requested kind of event occurs.
-   * Events are grouped into delivery sets by target, which should therefore
-   * be the recieving particle.
-   */
-  on(kind, callback, target) {
-    return this._view.on(kind, callback, target, this._particleId);
-  }
-
-  synchronize(kind, modelCallback, callback, target) {
-    return this._view.synchronize(kind, modelCallback, callback, target, this._particleId);
-  }
-
-  generateID() {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this._view.generateID);
-    return this._view.generateID();
-  }
-
-  generateIDComponents() {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this._view.generateIDComponents);
-    return this._view.generateIDComponents();
-  }
-
-  _serialize(entity) {
-    if (!entity.isIdentified())
-      entity.createIdentity(this.generateIDComponents());
-    let id = entity[identifier];
-    let rawData = entity.dataClone();
-    return {
-      id,
-      rawData
-    };
-  }
-
-  _restore(entry) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_4__platform_assert_web_js__["a" /* default */])(this.entityClass, 'Handles need entity classes for deserialization');
-    return restore(entry, this.entityClass);
-  }
-
-  get type() {
-    return this._view._type;
-  }
-  get name() {
-    return this._view.name;
-  }
-
-  get _id() {
-    return this._view._id;
-  }
-
-  toManifestString() {
-    return `'${this._id}'`;
-  }
-}
-
-/** @class View
- * A handle on a set of Entity data. Note that, as a set, a View can only contain
- * a single version of an Entity for each given ID. Further, no order is implied
- * by the set. A particle's manifest dictates the types of views that need to be
- * connected to that particle, and the current recipe identifies which views are
- * connected.
- */
-class Collection extends Handle {
-  constructor(view, particleId, canRead, canWrite) {
-    // TODO: this should talk to an API inside the PEC.
-    super(view, particleId, canRead, canWrite);
-  }
-  query() {
-    // TODO: things
-  }
-  /** @method async toList()
-   * Returns a list of the Entities contained by the View.
-   * throws: Error if this view is not configured as a readable view (i.e. 'in' or 'inout')
-     in the particle's manifest.
-   */
-  async toList() {
-    // TODO: remove this and use query instead
-    if (!this.canRead)
-      throw new Error('View not readable');
-    return (await this._view.toList(this._particleId)).map(a => this._restore(a));
-  }
-
-  /** @method store(entity)
-   * Stores a new entity into the View.
-   * throws: Error if this view is not configured as a writeable view (i.e. 'out' or 'inout')
-     in the particle's manifest.
-   */
-  async store(entity) {
-    if (!this.canWrite)
-      throw new Error('View not writeable');
-    let serialization = this._serialize(entity);
-    return this._view.store(serialization, this._particleId);
-  }
-
-  /** @method remove(entity)
-   * Removes an entity from the View.
-   * throws: Error if this view is not configured as a writeable view (i.e. 'out' or 'inout')
-     in the particle's manifest.
-   */
-  async remove(entity) {
-    if (!this.canWrite)
-      throw new Error('View not writeable');
-    let serialization = this._serialize(entity);
-    return this._view.remove(serialization.id, this._particleId);
-  }
-}
-
-/** @class Variable
- * A handle on a single entity. A particle's manifest dictates
- * the types of views that need to be connected to that particle, and
- * the current recipe identifies which views are connected.
- */
-class Variable extends Handle {
-  constructor(variable, canRead, canWrite, particleId) {
-    super(variable, canRead, canWrite, particleId);
-  }
-
-  /** @method async get()
-  * Returns the Entity contained by the Variable, or undefined if the Variable
-  * is cleared.
-  * throws: Error if this variable is not configured as a readable view (i.e. 'in' or 'inout')
-    in the particle's manifest.
-   */
-  async get() {
-    if (!this.canRead)
-      throw new Error('View not readable');
-    let result = await this._view.get(this._particleId);
-    if (result == null)
-      return undefined;
-    if (this.type.isEntity)
-      return this._restore(result);
-    if (this.type.isInterface)
-      return __WEBPACK_IMPORTED_MODULE_5__particle_spec_js__["a" /* default */].fromLiteral(result);
-    return result;
-  }
-
-  /** @method set(entity)
-   * Stores a new entity into the Variable, replacing any existing entity.
-   * throws: Error if this variable is not configured as a writeable view (i.e. 'out' or 'inout')
-     in the particle's manifest.
-   */
-  async set(entity) {
-    if (!this.canWrite)
-      throw new Error('View not writeable');
-    return this._view.set(this._serialize(entity), this._particleId);
-  }
-
-  /** @method clear()
-   * Clears any entity currently in the Variable.
-   * throws: Error if this variable is not configured as a writeable view (i.e. 'out' or 'inout')
-     in the particle's manifest.
-   */
-  async clear() {
-    if (!this.canWrite)
-      throw new Error('View not writeable');
-    await this._view.clear(this._particleId);
-  }
-}
-
-function handleFor(view, isSet, particleId, canRead = true, canWrite = true) {
-  return (isSet || (isSet == undefined && view.type.isSetView))
-      ? new Collection(view, particleId, canRead, canWrite)
-      : new Variable(view, particleId, canRead, canWrite);
-}
-
-/* harmony default export */ __webpack_exports__["a"] = ({handleFor});
-
-
-/***/ }),
-/* 30 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__util_js__ = __webpack_require__(5);
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-
-
-
-class Search {
-  constructor(phrase, unresolvedTokens) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(phrase);
-
-    this._phrase = '';
-    this._unresolvedTokens = [];
-    this._resolvedTokens = [];
-
-    this.appendPhrase(phrase, unresolvedTokens);
-  }
-  appendPhrase(phrase, unresolvedTokens) {
-    // concat phrase
-    if (this._phrase.length > 0) {
-      this._phrase = this.phrase.concat(' ');
-    }
-    this._phrase = this._phrase.concat(phrase);
-
-    // update tokens
-    let newTokens = phrase.toLowerCase().split(/[^a-z0-9]/g);
-    newTokens.forEach(t => {
-      if (!unresolvedTokens || unresolvedTokens.indexOf(t) >= 0) {
-        this._unresolvedTokens.push(t);
-      } else {
-        this._resolvedTokens.push(t);
-      }
-    });
-  }
-  get phrase() { return this._phrase; }
-  get unresolvedTokens() { return this._unresolvedTokens; }
-  get resolvedTokens() { return this._resolvedTokens; }
-  resolveToken(token) {
-    let index = this.unresolvedTokens.indexOf(token.toLowerCase());
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(index >= 0, `Cannot resolved nonexistent token ${token}`);
-    this._unresolvedTokens.splice(index, 1);
-    this._resolvedTokens.push(token.toLowerCase());
-  }
-
-  isValid() {
-    return this._unresolvedTokens.length > 0 || this._resolvedTokens.length > 0;
-  }
-
-  isResolved() {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(Object.isFrozen(this));
-    // Recipe is considered resolved, if at least one of the search tokens was resolved.
-    // TODO: Unresolved tokens don't prevent the recipe from being resolved. For now...
-    return this._resolvedTokens.length > 0;
-  }
-
-  _normalize() {
-    this._unresolvedTokens.sort();
-    this._resolvedTokens.sort();
-
-    Object.freeze(this);
-  }
-
-  _copyInto(recipe) {
-    if (recipe.search) {
-      recipe.search.appendPhrase(this.phrase, this.unresolvedTokens);
-    } else {
-      recipe.search = new Search(this.phrase, this.unresolvedTokens);
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(recipe.search.resolvedTokens.length == this.resolvedTokens.length);
-    }
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(this.resolvedTokens.every(rt => recipe.search.resolvedTokens.indexOf(rt) >= 0) &&
-           this.unresolvedTokens.every(rt => recipe.search.unresolvedTokens.indexOf(rt) >= 0));
-    return recipe.search;
-  }
-
-  toString(options) {
-    let result = [];
-    result.push(`search \`${this.phrase}\``);
-
-    let tokenStr = [];
-    tokenStr.push('  tokens');
-    if (this.unresolvedTokens.length > 0) {
-      tokenStr.push(this.unresolvedTokens.map(t => `\`${t}\``).join(' '));
-    }
-    if (this.resolvedTokens.length > 0) {
-      tokenStr.push(`// ${this.resolvedTokens.map(t => `\`${t}\``).join(' ')}`);
-    }
-    if (options && options.showUnresolved) {
-      if (this.unresolvedTokens.length > 0) {
-        tokenStr.push('// unresolved search tokens');
-      }
-    }
-    result.push(tokenStr.join(' '));
-
-    return result.join('\n');
-  }
-}
-
-/* harmony default export */ __webpack_exports__["a"] = (Search);
-
-
-/***/ }),
-/* 31 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__symbols_js__ = __webpack_require__(13);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__entity_js__ = __webpack_require__(12);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__schema_js__ = __webpack_require__(8);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__type_js__ = __webpack_require__(4);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__relation_js__ = __webpack_require__(18);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-
-
-
-function testEntityClass(type) {
-  return new __WEBPACK_IMPORTED_MODULE_3__schema_js__["a" /* default */]({
-    name: type,
-    sections: [{
-      sectionType: 'normative',
-      fields: {'id': 'Number', 'value': 'Text'}
-    }],
-    parents: [],
-  }).entityClass();
-}
-
-let BasicEntity = testEntityClass('BasicEntity');
-
-/* unused harmony default export */ var _unused_webpack_default_export = ({
-  Entity: __WEBPACK_IMPORTED_MODULE_2__entity_js__["a" /* default */],
-  BasicEntity,
-  Relation: __WEBPACK_IMPORTED_MODULE_5__relation_js__["a" /* default */],
-  testing: {
-    testEntityClass,
-  },
-  internals: {
-    identifier: __WEBPACK_IMPORTED_MODULE_1__symbols_js__["a" /* default */].identifier,
-    Type: __WEBPACK_IMPORTED_MODULE_4__type_js__["a" /* default */],
-  }
-});
-
-
-/***/ }),
-/* 32 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-class Slot {
-  constructor(consumeConn, arc) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(consumeConn);
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(arc);
-    this._consumeConn = consumeConn;
-    this._arc = arc;
-    this._context = null;
-    this.startRenderCallback = null;
-    this.stopRenderCallback = null;
-    this._hostedSlotById = new Map();
-  }
-  get consumeConn() { return this._consumeConn; }
-  get arc() { return this._arc; }
-  getContext() { return this._context; }
-  setContext(context) { this._context = context; }
-  isSameContext(context) { return this._context == context; }
-
-  updateContext(context) {
-    // do nothing, if context unchanged.
-    if ((!this.getContext() && !context) ||
-        (this.getContext() && context && this.isSameContext(context))) {
-      return;
-    }
-
-    // update the context;
-    let wasNull = !this.getContext();
-    this.setContext(context);
-    if (this.getContext()) {
-      if (wasNull) {
-        this.startRender();
-      }
-    } else {
-      this.stopRender();
-    }
-  }
-  startRender() {
-    if (this.startRenderCallback) {
-      let contentTypes = this.constructRenderRequest();
-      this.startRenderCallback({particle: this.consumeConn.particle, slotName: this.consumeConn.name, contentTypes});
-
-      for (let hostedSlot of this._hostedSlotById.values()) {
-        if (hostedSlot.particle) {
-          // Note: hosted particle may still not be set, if the hosted slot was already created, but the inner recipe wasn't instantiate yet.
-          this.startRenderCallback({particle: hostedSlot.particle, slotName: hostedSlot.slotName, contentTypes});
-        }
-      }
-    }
-  }
-
-  stopRender() {
-    if (this.stopRenderCallback) {
-      this.stopRenderCallback({particle: this.consumeConn.particle, slotName: this.consumeConn.name});
-
-      for (let hostedSlot of this._hostedSlotById.values()) {
-        this.stopRenderCallback({particle: hostedSlot.particle, slotName: hostedSlot.slotName});
-      }
-    }
-  }
-
-  async populateViewDescriptions() {
-    let descriptions = {};
-    await Promise.all(Object.values(this.consumeConn.particle.connections).map(async viewConn => {
-      if (viewConn.view) {
-        descriptions[`${viewConn.name}.description`] = (await this._arc.description.getHandleDescription(viewConn.view)).toString();
-      }
-    }));
-    return descriptions;
-  }
-
-  addHostedSlot(hostedSlotId, hostedParticleName, hostedSlotName) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(hostedSlotId, `Hosted slot ID must be provided`);
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!this._hostedSlotById.has(hostedSlotId), `Hosted slot ${hostedSlotId} already exists`);
-    this._hostedSlotById.set(hostedSlotId, {slotId: hostedSlotId, particleName: hostedParticleName, slotName: hostedSlotName});
-    return hostedSlotId;
-  }
-  getHostedSlot(hostedSlotId) {
-    return this._hostedSlotById.get(hostedSlotId);
-  }
-  findHostedSlot(hostedParticle, hostedSlotName) {
-    for (let hostedSlot of this._hostedSlotById.values()) {
-      if (hostedSlot.particle == hostedParticle && hostedSlot.slotName == hostedSlotName) {
-        return hostedSlot;
-      }
-    }
-  }
-  initHostedSlot(hostedSlotId, hostedParticle) {
-    let hostedSlot = this.getHostedSlot(hostedSlotId);
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(hostedSlot, `Hosted slot ${hostedSlotId} doesn't exist`);
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(hostedSlot.particleName == hostedParticle.name,
-           `Unexpected particle name ${hostedParticle.name} for slot ${hostedSlotId}; expected: ${hostedSlot.particleName}`);
-    hostedSlot.particle = hostedParticle;
-    if (this.getContext() && this.startRenderCallback) {
-      this.startRenderCallback({particle: hostedSlot.particle, slotName: hostedSlot.slotName, contentTypes: this.constructRenderRequest()});
-    }
-  }
-
-  // absract
-  async setContent(content, handler) {}
-  getInnerContext(slotName) {}
-  constructRenderRequest() {}
-  static findRootSlots(context) { }
-}
-
-/* harmony default export */ __webpack_exports__["a"] = (Slot);
-
-
-/***/ }),
-/* 33 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-// @
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-
-class KeyBase {
-  childKeyForHandle(id) {
-    throw 'NotImplemented';
-  }
-}
-/* harmony export (immutable) */ __webpack_exports__["a"] = KeyBase;
-
-
-/***/ }),
-/* 34 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__tracelib_trace_js__ = __webpack_require__(6);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__ = __webpack_require__(5);
-// @
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-
-
-
-
-class StorageProviderBase {
-  constructor(type, arcId, name, id, key) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(id, 'id must be provided when constructing StorageProviders');
-    let trace = __WEBPACK_IMPORTED_MODULE_1__tracelib_trace_js__["a" /* default */].start({cat: 'view', name: 'StorageProviderBase::constructor', args: {type: type.key, name: name}});
-    this._type = type;
-    this._arcId = arcId;
-    this._listeners = new Map();
-    this.name = name;
-    this._version = 0;
-    this.id = id;
-    this.source = null;
-    this._storageKey = key;
-    this._nextLocalID = 0;
-    trace.end();
-  }
-
-  get storageKey() {
-    return this._storageKey;
-  }
-
-  generateID() {
-    return `${this.id}:${this._nextLocalID++}`;
-  }
-
-  generateIDComponents() {
-    return {base: this.id, component: () => this._nextLocalID++};
-  }
-
-  get type() {
-    return this._type;
-  }
-  // TODO: add 'once' which returns a promise.
-  on(kind, callback, target) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(target !== undefined, 'must provide a target to register a storage event handler');
-    let scheduler = target._scheduler;
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(scheduler !== undefined, 'must provider a scheduler to register a storage event handler');
-    let listeners = this._listeners.get(kind) || new Map();
-    listeners.set(callback, {version: -Infinity, target, scheduler});
-    this._listeners.set(kind, listeners);
-  }
-
-  _fire(kind, details) {
-    let listenerMap = this._listeners.get(kind);
-    if (!listenerMap || listenerMap.size == 0)
-      return;
-
-    let callTrace = __WEBPACK_IMPORTED_MODULE_1__tracelib_trace_js__["a" /* default */].start({cat: 'view', name: 'StorageProviderBase::_fire', args: {kind, type: this._type.key,
-        name: this.name, listeners: listenerMap.size}});
-
-    // TODO: wire up a target (particle)
-    let eventRecords = new Map();
-
-    for (let [callback, registration] of listenerMap.entries()) {
-      let target = registration.target;
-      if (!eventRecords.has(registration.scheduler))
-        eventRecords.set(registration.scheduler, []);
-      eventRecords.get(registration.scheduler).push({target, callback, kind, details});
-    }
-    eventRecords.forEach((records, scheduler) => scheduler.enqueue(this, records));
-    callTrace.end();
-  }
-
-  _compareTo(other) {
-    let cmp;
-    if ((cmp = __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__["a" /* default */].compareStrings(this.name, other.name)) != 0) return cmp;
-    if ((cmp = __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__["a" /* default */].compareNumbers(this._version, other._version)) != 0) return cmp;
-    if ((cmp = __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__["a" /* default */].compareStrings(this.source, other.source)) != 0) return cmp;
-    if ((cmp = __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__["a" /* default */].compareStrings(this.id, other.id)) != 0) return cmp;
-    return 0;
-  }
-
-  toString(viewTags) {
-    let results = [];
-    let viewStr = [];
-    viewStr.push(`view`);
-    if (this.name) {
-      viewStr.push(`${this.name}`);
-    }
-    viewStr.push(`of ${this.type.toString()}`);
-    if (this.id) {
-      viewStr.push(`'${this.id}'`);
-    }
-    if (viewTags && viewTags.length) {
-      viewStr.push(`${[...viewTags].join(' ')}`);
-    }
-    if (this.source) {
-      viewStr.push(`in '${this.source}'`);
-    }
-    results.push(viewStr.join(' '));
-    if (this.description)
-      results.push(`  description \`${this.description}\``);
-    return results.join('\n');
-  }
-}
-/* harmony export (immutable) */ __webpack_exports__["a"] = StorageProviderBase;
-
-
-
-/***/ }),
-/* 35 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__in_memory_storage_js__ = __webpack_require__(76);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__firebase_storage_js__ = __webpack_require__(75);
-// @
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-
-
-
-
-class StorageProviderFactory {
-  constructor(arcId) {
-    this._arcId = arcId;
-    this._storageInstances = {'in-memory': new __WEBPACK_IMPORTED_MODULE_0__in_memory_storage_js__["a" /* default */](arcId), 'firebase': new __WEBPACK_IMPORTED_MODULE_1__firebase_storage_js__["a" /* default */](arcId)};
-  }
-
-  _storageForKey(key) {
-    let protocol = key.split(':')[0];
-    return this._storageInstances[protocol];
-  }
-
-  async construct(id, type, keyFragment) {
-    return this._storageForKey(keyFragment).construct(id, type, keyFragment);
-  }
-
-  async connect(id, type, key) {
-    return this._storageForKey(key).connect(id, type, key);
-  }
-
-  parseStringAsKey(string) {
-    return this._storageForKey(string).parseStringAsKey(string);
-  }
-
-  newKey(id, associatedKeyFragment) {
-
-  }
-}
-/* harmony export (immutable) */ __webpack_exports__["a"] = StorageProviderFactory;
-
-
-
-/***/ }),
-/* 36 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__dom_particle_js__ = __webpack_require__(15);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-// Regex to separate style and template.
-let re = /<style>((?:.|[\r\n])*)<\/style>((?:.|[\r\n])*)/;
-
-/** @class TransformationDomParticle
- * Particle that does transformation stuff with DOM.
- */
-class TransformationDomParticle extends __WEBPACK_IMPORTED_MODULE_1__dom_particle_js__["a" /* default */] {
-  getTemplate(slotName) {
-    return this._state.template;
-  }
-  _render(props, state) {
-    return state.renderModel;
-  }
-  _shouldRender(props, state) {
-    return Boolean(state.template && state.renderModel);
-  }
-
-  renderHostedSlot(slotName, hostedSlotId, content) {
-    this.combineHostedTemplate(slotName, hostedSlotId, content);
-    this.combineHostedModel(slotName, hostedSlotId, content);
-  }
-
-  // abstract
-  combineHostedTemplate(slotName, hostedSlotId, content) {}
-  combineHostedModel(slotName, hostedSlotId, content) {}
-
-  // Helper methods that may be reused in transformation particles to combine hosted content.
-  static combineTemplates(transformationTemplate, hostedTemplate) {
-    let transformationMatch = transformationTemplate.match(re);
-    if (!transformationMatch || transformationMatch.length != 3) {
-      return;
-    }
-    let hostedMatch = hostedTemplate.match(re);
-    if (!hostedMatch || hostedMatch.length != 3) {
-      return;
-    }
-
-    return `
-      <style>${transformationMatch[1].trim()}${hostedMatch[1].trim()}</style>
-      ${transformationMatch[2].trim().replace('{{hostedParticle}}', hostedMatch[2].trim())}
-    `;
-  }
-  static propsToItems(propsValues) {
-    return propsValues ? propsValues.map(({rawData, id}) => Object.assign({}, rawData, {subId: id})) : [];
-  }
-}
-
-/* harmony default export */ __webpack_exports__["a"] = (TransformationDomParticle);
-
-
-/***/ }),
 /* 37 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_js__ = __webpack_require__(31);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_js__ = __webpack_require__(29);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__tracelib_trace_js__ = __webpack_require__(6);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__type_js__ = __webpack_require__(4);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__relation_js__ = __webpack_require__(18);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__handle_js__ = __webpack_require__(29);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__outer_PEC_js__ = __webpack_require__(62);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__handle_js__ = __webpack_require__(26);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__outer_PEC_js__ = __webpack_require__(61);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__recipe_recipe_js__ = __webpack_require__(1);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_8__manifest_js__ = __webpack_require__(11);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_9__description_js__ = __webpack_require__(10);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_10__recipe_util_js__ = __webpack_require__(5);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_11__fake_pec_factory_js__ = __webpack_require__(56);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_12__storage_storage_provider_factory_js__ = __webpack_require__(35);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_11__fake_pec_factory_js__ = __webpack_require__(54);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_12__storage_storage_provider_factory_js__ = __webpack_require__(33);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_13__scheduler_js__ = __webpack_require__(14);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_14__devtools_shared_arc_registry_js__ = __webpack_require__(42);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_15__id_js__ = __webpack_require__(56);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -6645,6 +6531,7 @@ class TransformationDomParticle extends __WEBPACK_IMPORTED_MODULE_1__dom_particl
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
+
 
 
 
@@ -6669,7 +6556,10 @@ class Arc {
     this._context = context || new __WEBPACK_IMPORTED_MODULE_8__manifest_js__["a" /* default */]({id});
     // TODO: pecFactory should not be optional. update all callers and fix here.
     this._pecFactory = pecFactory || __WEBPACK_IMPORTED_MODULE_11__fake_pec_factory_js__["a" /* default */].bind(null);
-    this.id = id;
+
+    // for now, every Arc gets its own session
+    this.sessionId = __WEBPACK_IMPORTED_MODULE_15__id_js__["a" /* default */].newSessionId();
+    this.id = this.sessionId.fromString(id);
     this._nextLocalID = 0;
     this._activeRecipe = new __WEBPACK_IMPORTED_MODULE_7__recipe_recipe_js__["a" /* default */]();
     // TODO: rename: this are just tuples of {particles, handles, slots} of instantiated recipes merged into active recipe..
@@ -6689,6 +6579,7 @@ class Arc {
     this._storageKeys = {};
     this._storageKey = storageKey;
 
+
     this.particleHandleMaps = new Map();
     let pecId = this.generateID();
     let innerPecPort = this._pecFactory(pecId);
@@ -6707,6 +6598,7 @@ class Arc {
 
     this._search = null;
     this._description = new __WEBPACK_IMPORTED_MODULE_9__description_js__["a" /* default */](this);
+    this._debugging = false;
 
     __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_14__devtools_shared_arc_registry_js__["a" /* registerArc */])(this);
   }
@@ -6734,64 +6626,92 @@ class Arc {
     this._scheduler.idleCallback = callback;
   }
 
-  _serializeHandles() {
+  get idle() {
+    let awaitCompletion = async () => {
+      await this.scheduler.idle;
+      let messageCount = this.pec.messageCount;
+      await this.pec.idle;
+      if (this.pec.messageCount !== messageCount + 1)
+        return awaitCompletion();
+    };
+
+    return awaitCompletion();
+  }
+
+  async _serializeHandles() {
     let schemas = '';
     let handles = '';
     let resources = '';
+    let interfaces = '';
 
     let id = 0;
     let schemaSet = new Set();
-    this._handlesById.forEach(handle => {
-      let schema = handle.type;
-      if (schema.isSetView)
-        schema = schema.primitiveType;
-      if (schema.isEntity) {
-        schema = schema.entitySchema.toString();
+    for (let handle of this._handlesById.values()) {
+      let type = handle.type;
+      if (type.isSetView)
+        type = type.primitiveType();
+      if (type.isEntity) {
+        let schema = type.entitySchema.toString();
         if (!schemaSet.has(schema)) {
           schemaSet.add(schema);
           schemas += schema + '\n';
         }
       }
+      if (type.isInterface) {
+        interfaces += type.interfaceShape.toString() + '\n';
+      }
       let key = this._storageProviderFactory.parseStringAsKey(handle.storageKey);
       switch (key.protocol) {
         case 'firebase':
-          handles += `view View${id++} of ${handle.type.toString()} '${handle.id}' @0 at '${handle.storageKey}'\n`;
-          return;
+          handles += `view View${id++} of ${handle.type.toString()} '${handle.id}' @${handle._version} at '${handle.storageKey}'\n`;
+          break;
         case 'in-memory':
           resources += `resource View${id}Resource\n`;
           let indent = '  ';
           resources += indent + 'start\n';
-          let serializedData = handle.serializedData().map(a => {
+          
+          let serializedData = (await handle.serializedData()).map(a => {
             if (a == null)
               return null;
-            let result = {};
-            result.$id = a.id;
-            for (let field in a.rawData) {
-              result[field] = a.rawData[field];
+            if (a.rawData) {
+              let result = {};
+              result.$id = a.id;
+              for (let field in a.rawData) {
+                result[field] = a.rawData[field];
+              }
+              return result;
             }
-            return result;
+            return a;
           });
           let data = JSON.stringify(serializedData);
           resources += data.split('\n').map(line => indent + line).join('\n');
           resources += '\n';
-          handles += `view View${id} of ${handle.type.toString()} '${handle.id}' @0 in View${id++}Resource\n`;
-          return;
+          handles += `view View${id} of ${handle.type.toString()} '${handle.id}' @${handle._version} in View${id++}Resource\n`;
+          break;
       }
-    });
-    return resources + schemas + handles;
+    }
+
+    return resources + interfaces + schemas + handles;
   }
 
   _serializeParticles() {
     return [...this.particleHandleMaps.values()].map(entry => entry.spec.toString()).join('\n');
   }
 
-  serialize() {
+  _serializeStorageKey() {
+    if (this._storageKey)
+      return `storageKey: '${this._storageKey}'\n`;
+    return '';
+  }
+
+  async serialize() {
+    await this.idle;
     return `
 meta
   name: '${this.id}'
-  storageKey: '${this._storageKey}'
+  ${this._serializeStorageKey()}
 
-${this._serializeHandles()}
+${await this._serializeHandles()}
 
 ${this._serializeParticles()}
 
@@ -6799,8 +6719,8 @@ ${this._serializeParticles()}
 ${this.activeRecipe.toString()}`;
   }
 
-  static async deserialize({serialization, pecFactory, slotComposer, loader}) {
-    let manifest = await __WEBPACK_IMPORTED_MODULE_8__manifest_js__["a" /* default */].parse(serialization, {loader});
+  static async deserialize({serialization, pecFactory, slotComposer, loader, fileName}) {
+    let manifest = await __WEBPACK_IMPORTED_MODULE_8__manifest_js__["a" /* default */].parse(serialization, {loader, fileName});
     let arc = new Arc({
       id: manifest.meta.name,
       storageKey: manifest.meta.storageKey,
@@ -6813,7 +6733,7 @@ ${this.activeRecipe.toString()}`;
     manifest.views.forEach(view => arc._registerHandle(view, []));
     let recipe = manifest.activeRecipe.clone();
     recipe.normalize();
-    arc.instantiate(recipe);
+    await arc.instantiate(recipe);
     return arc;
   }
 
@@ -6829,7 +6749,7 @@ ${this.activeRecipe.toString()}`;
   }
 
   _instantiateParticle(recipeParticle) {
-    let id = this.generateID();
+    let id = this.generateID('particle');
     let handleMap = {spec: recipeParticle.spec, handles: new Map()};
     this.particleHandleMaps.set(id, handleMap);
 
@@ -6839,7 +6759,7 @@ ${this.activeRecipe.toString()}`;
         continue;
       }
       let handle = this.findHandleById(connection.view.id);
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__["a" /* default */])(handle);
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__["a" /* default */])(handle, `can't find handle of id ${connection.view.id}`);
       this._connectParticleToHandle(id, recipeParticle, name, handle);
     }
 
@@ -6851,8 +6771,8 @@ ${this.activeRecipe.toString()}`;
     return id;
   }
 
-  generateID() {
-    return `${this.id}:${this._nextLocalID++}`;
+  generateID(component) {
+    return this.id.createId(component).toString();
   }
 
   generateIDComponents() {
@@ -6865,7 +6785,7 @@ ${this.activeRecipe.toString()}`;
 
   // Makes a copy of the arc used for speculative execution.
   async cloneForSpeculativeExecution() {
-    let arc = new Arc({id: this.generateID(), pecFactory: this._pecFactory, context: this.context, loader: this._loader});
+    let arc = new Arc({id: this.generateID().toString(), pecFactory: this._pecFactory, context: this.context, loader: this._loader});
     arc._scheduler = this._scheduler.clone();
     let handleMap = new Map();
     for (let handle of this._handles) {
@@ -7123,6 +7043,7 @@ ${this.activeRecipe.toString()}`;
   }
 
   initDebug() {
+    this._debugging = true;
     this.pec.initDebug();
   }
 }
@@ -7137,29 +7058,31 @@ ${this.activeRecipe.toString()}`;
 "use strict";
 /* WEBPACK VAR INJECTION */(function(process) {/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__strategizer_strategizer_js__ = __webpack_require__(2);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__recipe_recipe_js__ = __webpack_require__(1);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__recipe_recipe_util_js__ = __webpack_require__(7);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__recipe_walker_js__ = __webpack_require__(3);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__strategies_convert_constraints_to_connections_js__ = __webpack_require__(81);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__strategies_assign_remote_views_js__ = __webpack_require__(78);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__strategies_copy_remote_views_js__ = __webpack_require__(82);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_8__strategies_assign_views_by_tag_and_type_js__ = __webpack_require__(79);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_9__strategies_init_population_js__ = __webpack_require__(86);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_10__strategies_map_consumed_slots_js__ = __webpack_require__(88);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_11__strategies_map_remote_slots_js__ = __webpack_require__(89);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_12__strategies_match_particle_by_verb_js__ = __webpack_require__(90);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_13__strategies_name_unnamed_connections_js__ = __webpack_require__(91);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_14__strategies_add_use_views_js__ = __webpack_require__(77);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_15__strategies_create_description_handle_js__ = __webpack_require__(83);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_16__manifest_js__ = __webpack_require__(11);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_17__strategies_init_search_js__ = __webpack_require__(87);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_18__strategies_search_tokens_to_particles_js__ = __webpack_require__(92);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_19__strategies_fallback_fate_js__ = __webpack_require__(84);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_20__strategies_group_handle_connections_js__ = __webpack_require__(85);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_21__strategies_combined_strategy_js__ = __webpack_require__(80);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_22__speculator_js__ = __webpack_require__(74);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_23__description_js__ = __webpack_require__(10);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_24__tracelib_trace_js__ = __webpack_require__(6);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__platform_deviceinfo_web_js__ = __webpack_require__(44);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__recipe_recipe_js__ = __webpack_require__(1);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__recipe_recipe_util_js__ = __webpack_require__(7);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__recipe_walker_js__ = __webpack_require__(3);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_6__strategies_convert_constraints_to_connections_js__ = __webpack_require__(79);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_7__strategies_assign_remote_views_js__ = __webpack_require__(76);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_8__strategies_copy_remote_views_js__ = __webpack_require__(80);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_9__strategies_assign_views_by_tag_and_type_js__ = __webpack_require__(77);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_10__strategies_init_population_js__ = __webpack_require__(84);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_11__strategies_map_consumed_slots_js__ = __webpack_require__(86);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_12__strategies_map_remote_slots_js__ = __webpack_require__(87);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_13__strategies_match_particle_by_verb_js__ = __webpack_require__(88);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_14__strategies_name_unnamed_connections_js__ = __webpack_require__(89);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_15__strategies_add_use_views_js__ = __webpack_require__(75);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_16__strategies_create_description_handle_js__ = __webpack_require__(81);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_17__manifest_js__ = __webpack_require__(11);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_18__strategies_init_search_js__ = __webpack_require__(85);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_19__strategies_search_tokens_to_particles_js__ = __webpack_require__(90);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_20__strategies_fallback_fate_js__ = __webpack_require__(82);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_21__strategies_group_handle_connections_js__ = __webpack_require__(83);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_22__strategies_combined_strategy_js__ = __webpack_require__(78);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_23__speculator_js__ = __webpack_require__(72);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_24__description_js__ = __webpack_require__(10);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_25__tracelib_trace_js__ = __webpack_require__(6);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_26__debug_strategy_explorer_adapter_js__ = __webpack_require__(51);
 // Copyright (c) 2017 Google Inc. All rights reserved.
 // This code may only be used under the BSD style license found at
 // http://polymer.github.io/LICENSE.txt
@@ -7194,12 +7117,15 @@ ${this.activeRecipe.toString()}`;
 
 
 
+
+
+
 class CreateViews extends __WEBPACK_IMPORTED_MODULE_0__strategizer_strategizer_js__["a" /* Strategy */] {
   // TODO: move generation to use an async generator.
   async generate(strategizer) {
-    let results = __WEBPACK_IMPORTED_MODULE_2__recipe_recipe_js__["a" /* default */].over(this.getResults(strategizer), new class extends __WEBPACK_IMPORTED_MODULE_4__recipe_walker_js__["a" /* default */] {
+    let results = __WEBPACK_IMPORTED_MODULE_3__recipe_recipe_js__["a" /* default */].over(this.getResults(strategizer), new class extends __WEBPACK_IMPORTED_MODULE_5__recipe_walker_js__["a" /* default */] {
       onView(recipe, view) {
-        let counts = __WEBPACK_IMPORTED_MODULE_3__recipe_recipe_util_js__["a" /* default */].directionCounts(view);
+        let counts = __WEBPACK_IMPORTED_MODULE_4__recipe_recipe_util_js__["a" /* default */].directionCounts(view);
 
         let score = 1;
         if (counts.in == 0 || counts.out == 0) {
@@ -7215,7 +7141,7 @@ class CreateViews extends __WEBPACK_IMPORTED_MODULE_0__strategizer_strategizer_j
           return (recipe, view) => {view.fate = 'create'; return score;};
         }
       }
-    }(__WEBPACK_IMPORTED_MODULE_4__recipe_walker_js__["a" /* default */].Permuted), this);
+    }(__WEBPACK_IMPORTED_MODULE_5__recipe_walker_js__["a" /* default */].Permuted), this);
 
     return {results, generate: null};
   }
@@ -7227,24 +7153,24 @@ class Planner {
   init(arc) {
     this._arc = arc;
     let strategies = [
-      new __WEBPACK_IMPORTED_MODULE_9__strategies_init_population_js__["a" /* default */](arc),
-      new __WEBPACK_IMPORTED_MODULE_17__strategies_init_search_js__["a" /* default */](arc),
-      new __WEBPACK_IMPORTED_MODULE_21__strategies_combined_strategy_js__["a" /* default */]([
-        new __WEBPACK_IMPORTED_MODULE_18__strategies_search_tokens_to_particles_js__["a" /* default */](arc),
-        new __WEBPACK_IMPORTED_MODULE_20__strategies_group_handle_connections_js__["a" /* default */](),
+      new __WEBPACK_IMPORTED_MODULE_10__strategies_init_population_js__["a" /* default */](arc),
+      new __WEBPACK_IMPORTED_MODULE_18__strategies_init_search_js__["a" /* default */](arc),
+      new __WEBPACK_IMPORTED_MODULE_22__strategies_combined_strategy_js__["a" /* default */]([
+        new __WEBPACK_IMPORTED_MODULE_19__strategies_search_tokens_to_particles_js__["a" /* default */](arc),
+        new __WEBPACK_IMPORTED_MODULE_21__strategies_group_handle_connections_js__["a" /* default */](),
       ]),
-      new __WEBPACK_IMPORTED_MODULE_19__strategies_fallback_fate_js__["a" /* default */](),
+      new __WEBPACK_IMPORTED_MODULE_20__strategies_fallback_fate_js__["a" /* default */](),
       new CreateViews(),
-      new __WEBPACK_IMPORTED_MODULE_8__strategies_assign_views_by_tag_and_type_js__["a" /* default */](arc),
-      new __WEBPACK_IMPORTED_MODULE_5__strategies_convert_constraints_to_connections_js__["a" /* default */](arc),
-      new __WEBPACK_IMPORTED_MODULE_10__strategies_map_consumed_slots_js__["a" /* default */](),
-      new __WEBPACK_IMPORTED_MODULE_6__strategies_assign_remote_views_js__["a" /* default */](arc),
-      new __WEBPACK_IMPORTED_MODULE_7__strategies_copy_remote_views_js__["a" /* default */](arc),
-      new __WEBPACK_IMPORTED_MODULE_11__strategies_map_remote_slots_js__["a" /* default */](arc),
-      new __WEBPACK_IMPORTED_MODULE_12__strategies_match_particle_by_verb_js__["a" /* default */](arc),
-      new __WEBPACK_IMPORTED_MODULE_13__strategies_name_unnamed_connections_js__["a" /* default */](arc),
-      new __WEBPACK_IMPORTED_MODULE_14__strategies_add_use_views_js__["a" /* default */](),
-      new __WEBPACK_IMPORTED_MODULE_15__strategies_create_description_handle_js__["a" /* default */](),
+      new __WEBPACK_IMPORTED_MODULE_9__strategies_assign_views_by_tag_and_type_js__["a" /* default */](arc),
+      new __WEBPACK_IMPORTED_MODULE_6__strategies_convert_constraints_to_connections_js__["a" /* default */](arc),
+      new __WEBPACK_IMPORTED_MODULE_11__strategies_map_consumed_slots_js__["a" /* default */](),
+      new __WEBPACK_IMPORTED_MODULE_7__strategies_assign_remote_views_js__["a" /* default */](arc),
+      new __WEBPACK_IMPORTED_MODULE_8__strategies_copy_remote_views_js__["a" /* default */](arc),
+      new __WEBPACK_IMPORTED_MODULE_12__strategies_map_remote_slots_js__["a" /* default */](arc),
+      new __WEBPACK_IMPORTED_MODULE_13__strategies_match_particle_by_verb_js__["a" /* default */](arc),
+      new __WEBPACK_IMPORTED_MODULE_14__strategies_name_unnamed_connections_js__["a" /* default */](arc),
+      new __WEBPACK_IMPORTED_MODULE_15__strategies_add_use_views_js__["a" /* default */](),
+      new __WEBPACK_IMPORTED_MODULE_16__strategies_create_description_handle_js__["a" /* default */](),
     ];
     this.strategizer = new __WEBPACK_IMPORTED_MODULE_0__strategizer_strategizer_js__["b" /* Strategizer */](strategies, [], {
       maxPopulation: 100,
@@ -7259,7 +7185,7 @@ class Planner {
   }
 
   async plan(timeout, generations) {
-    let trace = __WEBPACK_IMPORTED_MODULE_24__tracelib_trace_js__["a" /* default */].async({cat: 'planning', name: 'Planner::plan', args: {timeout}});
+    let trace = __WEBPACK_IMPORTED_MODULE_25__tracelib_trace_js__["a" /* default */].async({cat: 'planning', name: 'Planner::plan', args: {timeout}});
     timeout = timeout || NaN;
     let allResolved = [];
     let now = () => (typeof performance == 'object') ? performance.now() : process.hrtime();
@@ -7287,67 +7213,122 @@ class Planner {
   }
 
   _matchesActiveRecipe(plan) {
-    let planShape = __WEBPACK_IMPORTED_MODULE_3__recipe_recipe_util_js__["a" /* default */].recipeToShape(plan);
-    let result = __WEBPACK_IMPORTED_MODULE_3__recipe_recipe_util_js__["a" /* default */].find(this._arc._activeRecipe, planShape);
+    let planShape = __WEBPACK_IMPORTED_MODULE_4__recipe_recipe_util_js__["a" /* default */].recipeToShape(plan);
+    let result = __WEBPACK_IMPORTED_MODULE_4__recipe_recipe_util_js__["a" /* default */].find(this._arc._activeRecipe, planShape);
     return result.some(r => r.score == 0);
   }
 
+  _speculativeThreadCount() {
+    // TODO(wkorman): We'll obviously have to rework the below when we do
+    // speculation in the cloud.
+    const cores = __WEBPACK_IMPORTED_MODULE_2__platform_deviceinfo_web_js__["a" /* default */].hardwareConcurrency();
+    const memory = __WEBPACK_IMPORTED_MODULE_2__platform_deviceinfo_web_js__["a" /* default */].deviceMemory();
+    // For now, allow occupying half of the available cores while constraining
+    // total memory used to at most a quarter of what's available. In the
+    // absence of resource information we just run two in parallel as a
+    // perhaps-low-end-device-oriented balancing act.
+    const minCores = 2;
+    if (!cores || !memory) {
+      return minCores;
+    }
+
+    // A rough estimate of memory used per thread in gigabytes.
+    const memoryPerThread = 0.125;
+    const quarterMemory = memory / 4;
+    const maxThreadsByMemory = quarterMemory / memoryPerThread;
+    const maxThreadsByCores = cores / 2;
+    return Math.max(minCores, Math.min(maxThreadsByMemory, maxThreadsByCores));
+  }
+  _splitToGroups(items, groupCount) {
+    const groups = [];
+    if (!items || items.length == 0) return groups;
+    const groupItemSize = Math.max(1, Math.floor(items.length / groupCount));
+    let startIndex = 0;
+    for (let i = 0; i < groupCount && startIndex < items.length; i++) {
+      groups.push(items.slice(startIndex, startIndex + groupItemSize));
+      startIndex += groupItemSize;
+    }
+    // Add any remaining items to the end of the last group.
+    if (startIndex < items.length) {
+      groups[groups.length - 1].push(...items.slice(startIndex, items.length));
+    }
+    return groups;
+  }
   async suggest(timeout, generations) {
-    let trace = __WEBPACK_IMPORTED_MODULE_24__tracelib_trace_js__["a" /* default */].async({cat: 'planning', name: 'Planner::suggest', args: {timeout}});
+    if (!generations && this._arc._debugging) generations = [];
+    let trace = __WEBPACK_IMPORTED_MODULE_25__tracelib_trace_js__["a" /* default */].async({cat: 'planning', name: 'Planner::suggest', args: {timeout}});
     let plans = await trace.wait(() => this.plan(timeout, generations));
     trace.resume();
     let suggestions = [];
-    let speculator = new __WEBPACK_IMPORTED_MODULE_22__speculator_js__["a" /* default */]();
-    // TODO: Run some reasonable number of speculations in parallel.
-    let results = [];
-    for (let plan of plans) {
-      let hash = ((hash) => { return hash.substring(hash.length - 4);})(await plan.digest());
+    let speculator = new __WEBPACK_IMPORTED_MODULE_23__speculator_js__["a" /* default */]();
+    // We don't actually know how many threads the VM will decide to use to
+    // handle the parallel speculation, but at least we know we won't kick off
+    // more than this number and so can somewhat limit resource utilization.
+    // TODO(wkorman): Rework this to use a fixed size 'thread' pool for more
+    // efficient work distribution.
+    const threadCount = this._speculativeThreadCount();
+    const planGroups = this._splitToGroups(plans, threadCount);
+    let results = await trace.wait(() => Promise.all(planGroups.map(async (group, groupIndex) => {
+      let results = [];
+      for (let plan of group) {
+        let hash = ((hash) => { return hash.substring(hash.length - 4);})(await plan.digest());
 
-      if (this._matchesActiveRecipe(plan)) {
-        this._updateGeneration(generations, hash, (g) => g.active = true);
-        continue;
-      }
-
-      let relevance = await trace.wait(() => speculator.speculate(this._arc, plan));
-      trace.resume();
-      if (!relevance.isRelevant(plan)) {
-        continue;
-      }
-      let rank = relevance.calcRelevanceScore();
-
-      relevance.newArc.description.relevance = relevance;
-      let description = await relevance.newArc.description.getRecipeSuggestion();
-
-      this._updateGeneration(generations, hash, (g) => g.description = description);
-
-      // TODO: Move this logic inside speculate, so that it can stop the arc
-      // before returning.
-      relevance.newArc.stop();
-
-      // Filter plans based on arc._search string.
-      if (this._arc.search) {
-        if (!plan.search) {
-          // This plan wasn't constructed based on the provided search terms.
-          if (description.toLowerCase().indexOf(arc.search) < 0) {
-            // Description must contain the full search string.
-            // TODO: this could be a strategy, if description was already available during strategies execution.
-            continue;
-          }
-        } else {
-          // This mean the plan was constructed based on provided search terms,
-          // and at least one of them were resolved (in order for the plan to be resolved).
+        if (this._matchesActiveRecipe(plan)) {
+          this._updateGeneration(generations, hash, (g) => g.active = true);
+          continue;
         }
-      }
 
-      results.push({
-        plan,
-        rank,
-        description: relevance.newArc.description,
-        descriptionText: description, // TODO(mmandlis): exclude the text description from returned results.
-        hash
-      });
-    }
+        // TODO(wkorman): Look at restoring trace.wait() here, and whether we
+        // should do similar for the async getRecipeSuggestion() below as well?
+        let relevance = await speculator.speculate(this._arc, plan);
+        if (!relevance.isRelevant(plan)) {
+          continue;
+        }
+        let rank = relevance.calcRelevanceScore();
+
+        relevance.newArc.description.relevance = relevance;
+        let description = await relevance.newArc.description.getRecipeSuggestion();
+
+        this._updateGeneration(generations, hash, (g) => g.description = description);
+
+        // TODO: Move this logic inside speculate, so that it can stop the arc
+        // before returning.
+        relevance.newArc.stop();
+
+        // Filter plans based on arc._search string.
+        if (this._arc.search) {
+          if (!plan.search) {
+            // This plan wasn't constructed based on the provided search terms.
+            if (description.toLowerCase().indexOf(arc.search) < 0) {
+              // Description must contain the full search string.
+              // TODO: this could be a strategy, if description was already available during strategies execution.
+              continue;
+            }
+          } else {
+            // This mean the plan was constructed based on provided search terms,
+            // and at least one of them were resolved (in order for the plan to be resolved).
+          }
+        }
+
+        results.push({
+          plan,
+          rank,
+          description: relevance.newArc.description,
+          descriptionText: description, // TODO(mmandlis): exclude the text description from returned results.
+          hash,
+          groupIndex
+        });
+      }
+      return results;
+    })));
+    trace.resume();
+    results = [].concat(...results);
     trace.end();
+
+    if (this._arc._debugging) {
+      __WEBPACK_IMPORTED_MODULE_26__debug_strategy_explorer_adapter_js__["a" /* default */].processGenerations(generations);
+    }
+
     return results;
   }
   _updateGeneration(generations, hash, handler) {
@@ -7365,7 +7346,7 @@ class Planner {
 
 /* harmony default export */ __webpack_exports__["a"] = (Planner);
 
-/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(22)))
+/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(35)))
 
 /***/ }),
 /* 39 */
@@ -7373,10 +7354,10 @@ class Planner {
 
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__slot_js__ = __webpack_require__(32);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__dom_slot_js__ = __webpack_require__(55);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__dom_context_js__ = __webpack_require__(28);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__description_dom_formatter_js__ = __webpack_require__(54);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__slot_js__ = __webpack_require__(30);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__dom_slot_js__ = __webpack_require__(53);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__dom_context_js__ = __webpack_require__(25);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__description_dom_formatter_js__ = __webpack_require__(52);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -7513,7 +7494,10 @@ class SlotComposer {
     // Create slots for each of the recipe's particles slot connections.
     recipeParticles.forEach(p => {
       Object.values(p.consumedSlotConnections).forEach(cs => {
-        __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(cs.targetSlot, `No target slot for particle's ${p.name} consumed slot: ${cs.name}.`);
+        if (!cs.targetSlot) {
+          __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(!cs.slotSpec.isRequired, `No target slot for particle's ${p.name} required consumed slot: ${cs.name}.`);
+          return;
+        }
 
         if (this._initHostedSlot(cs.targetSlot.id, p)) {
           // Skip slot creation for hosted slots.
@@ -7644,7 +7628,7 @@ class SlotComposer {
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__arcs_runtime_loader_js__ = __webpack_require__(16);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__arcs_runtime_particle_js__ = __webpack_require__(17);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__arcs_runtime_dom_particle_js__ = __webpack_require__(15);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__arcs_runtime_transformation_dom_particle_js__ = __webpack_require__(36);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__arcs_runtime_transformation_dom_particle_js__ = __webpack_require__(34);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -7859,7 +7843,7 @@ class JsonldToManifest {
 
 // Debugging is initialized either by /devtools/src/run-init-debug.js, which is
 // injected by the devtools extension content script in the browser env,
-// or used directly in when debugging nodeJS.
+// or used directly when debugging nodeJS.
 // This is why data needs to be referenced via a global object.
 
 let root = typeof window === 'object' ? window : global;
@@ -7890,7 +7874,7 @@ function registerArc(arc) {
 
 
 
-/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(23)))
+/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(36)))
 
 /***/ }),
 /* 43 */
@@ -7914,7 +7898,34 @@ function registerArc(arc) {
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_debug_abstract_devtools_channel_js__ = __webpack_require__(51);
+// Copyright (c) 2018 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+// Provides access to device hardware resource metrics for a web browser.
+class DeviceInfo {
+  // Returns the number of logical cores.
+  static hardwareConcurrency() {
+    return navigator.hardwareConcurrency;
+  }
+  // Returns the device memory in gigabytes.
+  static deviceMemory() {
+    return navigator.deviceMemory;
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = DeviceInfo;
+;
+
+
+/***/ }),
+/* 45 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__runtime_debug_abstract_devtools_channel_js__ = __webpack_require__(49);
 /**
  * @license
  * Copyright (c) 2018 Google Inc. All rights reserved.
@@ -7943,7 +7954,7 @@ class ChromeExtensionChannel extends __WEBPACK_IMPORTED_MODULE_0__runtime_debug_
 
 
 /***/ }),
-/* 45 */
+/* 46 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -7960,7 +7971,7 @@ class ChromeExtensionChannel extends __WEBPACK_IMPORTED_MODULE_0__runtime_debug_
 
 
 /***/ }),
-/* 46 */
+/* 47 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -7975,259 +7986,7 @@ class ChromeExtensionChannel extends __WEBPACK_IMPORTED_MODULE_0__runtime_debug_
 
 
 /***/ }),
-/* 47 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-// TODO: Move HTMLElement to platform abstraction.
-let HTMLElement;
-if (typeof window == 'undefined') {
-  HTMLElement = class HTMLElement {};
-} else {
-  HTMLElement = window.HTMLElement;
-}
-
-class ModelSelect extends HTMLElement {
-  connectedCallback() {
-    this.style.display = 'inline-block';
-    this._requireSelect();
-  }
-  _requireSelect() {
-    return this.select = this.select || this.appendChild(document.createElement('select'));
-  }
-  set options(options) {
-    let select = this._requireSelect();
-    select.textContent = '';
-    options && options.forEach(o =>
-      select.appendChild(
-        Object.assign(document.createElement('option'), {
-          value: o.value || o,
-          text: o.text || o.value || o
-        })
-      )
-    );
-  }
-}
-/* unused harmony export default */
-
-
-if (typeof customElements != 'undefined') {
-  customElements.define('model-select', ModelSelect);
-}
-
-
-/***/ }),
 /* 48 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__xen_template_js__ = __webpack_require__(27);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__xen_element_js__ = __webpack_require__(49);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__xen_state_js__ = __webpack_require__(26);
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-
-class XList extends __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__xen_state_js__["a" /* default */])(__WEBPACK_IMPORTED_MODULE_1__xen_element_js__["a" /* default */]) {
-  static get observedAttributes() {
-    return ['items', 'template', 'handler', 'render', 'scope'];
-  }
-  _mount() {
-    this._setState({
-      container: this.querySelector('[container]') || this,
-      template: this.querySelector('template')
-    });
-    this.textContent = '';
-  }
-  _update(props, state) {
-    let template = props.template || state.template;
-    if (template) {
-      this._renderList(state.container, template, props);
-    }
-  }
-  _renderList(container, template, props) {
-    // magically plumb eventMapper from an ancestor
-    let p = this;
-    while (!props.eventMapper && p) {
-      props.eventMapper = p._eventMapper;
-      p = p.parentElement;
-    }
-    //console.log('XList::_renderList:', props);
-    let child = container.firstElementChild, next;
-    props.items && props.items.forEach((item, i)=>{
-      // use existing node if possible
-      next = child && child.nextElementSibling;
-      if (!child) {
-        let dom;
-        try {
-          // TODO(sjmiles): install event handlers explicitly now
-          dom = __WEBPACK_IMPORTED_MODULE_0__xen_template_js__["a" /* default */].stamp(template).events(props.eventMapper);
-        } catch (x) {
-          console.warn('x-list: if `listen` is undefined, you need to provide a `handler` property for `on-*` events');
-          throw x;
-        }
-        child = dom.root.firstElementChild;
-        if (child) {
-          child._listDom = dom;
-          container.appendChild(dom.root);
-        }
-      }
-      if (child) {
-        // scope aka childProps
-        let scope = Object.create(null);
-        // accumulate scope to implement lexical binding
-        if (props.scope) {
-          Object.assign(scope, props.scope);
-          scope.scope = props;
-        }
-        // TODO(sjmiles): failure to decide if an item is an `item` or an anonymous collection of properties
-        scope.item = item;
-        if (typeof item === 'object') {
-          Object.assign(scope, item);
-        }
-        // list scope
-        scope._items = props.items;
-        scope._itemIndex = i;
-        scope._item = item;
-        // user can supply additional scope processing
-        if (props.render) {
-          Object.assign(scope, props.render(scope));
-        }
-        //console.log('_renderList.scope:', scope);
-        child._listDom.set(scope);
-        child = next;
-      }
-    });
-    // remove extra nodes
-    while (child) {
-      next = child.nextElementSibling;
-      child.remove();
-      child = next;
-    }
-  }
-}
-
-if (typeof customElements != 'undefined') {
-  customElements.define('x-list', XList);
-}
-
-
-/***/ }),
-/* 49 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-let HTMLElement;
-if (typeof window == 'undefined') {
-  HTMLElement = class HTMLElement {};
-} else {
-  HTMLElement = window.HTMLElement;
-}
-
-class XenElement extends HTMLElement {
-  constructor() {
-    super();
-    this._mounted = false;
-    this._root = this;
-    this.__configureAccessors();
-    this.__lazyAcquireProps();
-  }
-  get _class() {
-    // TODO(sjmiles): problem accessing class statics under polyfills can be fixed
-    // by attaching _class reference to element constructors (not provided)
-    return (this.constructor._class || this.constructor);
-  }
-  __lazyAcquireProps() {
-    let a = this._class.observedAttributes;
-    a && a.forEach(n=>{
-      if (n.toLowerCase() !== n) {
-        console.error('Xen: Mixed-case attributes are not yet supported, `' + this.localName + '.observedAttributes` contains `' + n + '`.');
-      }
-      if (this.hasOwnProperty(n)) {
-        let value = this[n];
-        delete this[n];
-        this[n] = value;
-      } else if (this.hasAttribute(n)) {
-        this[n] = this.getAttribute(n);
-      }
-    });
-  }
-  __configureAccessors() {
-    // only do this once per prototype
-    let p = Object.getPrototypeOf(this);
-    if (!p.hasOwnProperty('__$xenPropsConfigured')) {
-      p.__$xenPropsConfigured = true;
-      let a = this._class.observedAttributes;
-      a && a.forEach(n => {
-        Object.defineProperty(p, n, {
-          get() {
-            // abstract
-            return this._getProperty(n);
-          },
-          set(value) {
-            // abstract
-            this._setProperty(n, value);
-          }
-        });
-      });
-    }
-  }
-  connectedCallback() {
-    this._mount();
-  }
-  _mount() {
-    if (!this._mounted) {
-      this._mounted = true;
-      this._doMount();
-      this._didMount();
-    }
-  }
-  _doMount() {
-  }
-  _didMount() {
-  }
-  _fire(eventName, detail) {
-    let event = new CustomEvent(eventName, {detail: detail});
-    this.dispatchEvent(event);
-    return event.detail;
-  }
-}
-/* harmony export (immutable) */ __webpack_exports__["a"] = XenElement;
-
-
-
-/***/ }),
-/* 50 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -8645,7 +8404,7 @@ class XenElement extends HTMLElement {
               affordance,
             };
           },
-        peg$c104 = function(isRequired, isSet, name, items) {
+        peg$c104 = function(isRequired, isSet, name, tags, items) {
             let formFactor = null;
             let providedSlots = [];
             items = optional(items, extractIndented, []);
@@ -8664,6 +8423,7 @@ class XenElement extends HTMLElement {
               kind: 'particle-slot',
               location: location(),
               name,
+              tags: optional(tags, tags => tags[1], []),
               isRequired: optional(isRequired, isRequired => isRequired[0] == 'must', false),
               isSet: !!isSet,
               formFactor,
@@ -8687,7 +8447,7 @@ class XenElement extends HTMLElement {
               formFactor
             };
           },
-        peg$c116 = function(isSet, name, items) {
+        peg$c116 = function(isSet, name, tags, items) {
             let formFactor = null;
             let views = [];
             items = items ? extractIndented(items) : [];
@@ -8704,6 +8464,7 @@ class XenElement extends HTMLElement {
               kind: 'provided-slot',
               location: location(),
               name,
+              tags: optional(tags, tags => tags[1], []),
               isSet: !!isSet,
               formFactor,
               views
@@ -8939,11 +8700,11 @@ class XenElement extends HTMLElement {
           },
         peg$c174 = "slot",
         peg$c175 = peg$literalExpectation("slot", false),
-        peg$c176 = function(id, name) {
+        peg$c176 = function(ref, name) {
             return {
               kind: 'slot',
               location: location(),
-              id: optional(id, id => id[1], null),
+              ref: optional(ref, ref => ref[1], null),
               name: optional(name, name => name[1], '')
             }
           },
@@ -8965,16 +8726,15 @@ class XenElement extends HTMLElement {
               kind: 'schema-inline',
               location: location(),
               name: name == '*' ? null : name,
-              fields: fields.map(field => field[0]),
+              fields: optional(fields, fields => [fields[0], ...fields[1].map(tail => tail[2])], []),
             }
           },
-        peg$c185 = function(type, arity, name) {
+        peg$c185 = function(type, name) {
             return {
               kind: 'schema-inline-field',
               location: location(),
               name,
-              type,
-              arity,
+              type: optional(type, type => type[0], null),
             };
           },
         peg$c186 = "schema",
@@ -9021,20 +8781,27 @@ class XenElement extends HTMLElement {
         peg$c205 = "or",
         peg$c206 = peg$literalExpectation("or", false),
         peg$c207 = function(first, rest) {
-          let typeList = [first];
-          for (let type of rest) {
-            typeList.push(type[3]);
-          }
-          return typeList;
-        },
-        peg$c208 = /^[0-9]/,
-        peg$c209 = peg$classExpectation([["0", "9"]], false, false),
-        peg$c210 = function(version) {
+            let types = [first];
+            for (let type of rest) {
+              types.push(type[3]);
+            }
+            return {kind: 'schema-union', location: location(), types};
+          },
+        peg$c208 = function(first, rest) {
+            let types = [first];
+            for (let type of rest) {
+              types.push(type[3]);
+            }
+            return {kind: 'schema-tuple', location: location(), types};
+          },
+        peg$c209 = /^[0-9]/,
+        peg$c210 = peg$classExpectation([["0", "9"]], false, false),
+        peg$c211 = function(version) {
             return Number(version.join(''));
           },
-        peg$c211 = " ",
-        peg$c212 = peg$literalExpectation(" ", false),
-        peg$c213 = function(i) {
+        peg$c212 = " ",
+        peg$c213 = peg$literalExpectation(" ", false),
+        peg$c214 = function(i) {
           i = i.join('');
           if (i.length > indent.length) {
             indents.push(indent);
@@ -9042,7 +8809,7 @@ class XenElement extends HTMLElement {
             return true;
           }
         },
-        peg$c214 = function(i) {
+        peg$c215 = function(i) {
           i = i.join('');
           if (i.length == indent.length) {
             return true;
@@ -9051,7 +8818,7 @@ class XenElement extends HTMLElement {
             return false;
           }
         },
-        peg$c215 = function(i) {
+        peg$c216 = function(i) {
           i = i.join('');
           if (i.length >= indent.length) {
             return true;
@@ -9060,38 +8827,38 @@ class XenElement extends HTMLElement {
             return false;
           }
         },
-        peg$c216 = function() {
+        peg$c217 = function() {
             let fixed = text();
             fixed = fixed.replace(/^(.)/, l => l.toUpperCase());
             expected(`a top level identifier (e.g. "${fixed}")`);
           },
-        peg$c217 = "`",
-        peg$c218 = peg$literalExpectation("`", false),
-        peg$c219 = /^[^`]/,
-        peg$c220 = peg$classExpectation(["`"], true, false),
-        peg$c221 = function(pattern) { return pattern.join(''); },
-        peg$c222 = "'",
-        peg$c223 = peg$literalExpectation("'", false),
-        peg$c224 = /^[^']/,
-        peg$c225 = peg$classExpectation(["'"], true, false),
-        peg$c226 = function(id) {return id.join('')},
-        peg$c227 = /^[A-Z]/,
-        peg$c228 = peg$classExpectation([["A", "Z"]], false, false),
-        peg$c229 = /^[a-z0-9_]/i,
-        peg$c230 = peg$classExpectation([["a", "z"], ["0", "9"], "_"], false, true),
-        peg$c231 = function(ident) {return text()},
-        peg$c232 = /^[a-z]/,
-        peg$c233 = peg$classExpectation([["a", "z"]], false, false),
-        peg$c234 = /^[ ]/,
-        peg$c235 = peg$classExpectation([" "], false, false),
-        peg$c236 = peg$anyExpectation(),
-        peg$c237 = "\r",
-        peg$c238 = peg$literalExpectation("\r", false),
-        peg$c239 = "\n",
-        peg$c240 = peg$literalExpectation("\n", false),
-        peg$c241 = "//",
-        peg$c242 = peg$literalExpectation("//", false),
-        peg$c243 = function(marker) {
+        peg$c218 = "`",
+        peg$c219 = peg$literalExpectation("`", false),
+        peg$c220 = /^[^`]/,
+        peg$c221 = peg$classExpectation(["`"], true, false),
+        peg$c222 = function(pattern) { return pattern.join(''); },
+        peg$c223 = "'",
+        peg$c224 = peg$literalExpectation("'", false),
+        peg$c225 = /^[^']/,
+        peg$c226 = peg$classExpectation(["'"], true, false),
+        peg$c227 = function(id) {return id.join('')},
+        peg$c228 = /^[A-Z]/,
+        peg$c229 = peg$classExpectation([["A", "Z"]], false, false),
+        peg$c230 = /^[a-z0-9_]/i,
+        peg$c231 = peg$classExpectation([["a", "z"], ["0", "9"], "_"], false, true),
+        peg$c232 = function(ident) {return text()},
+        peg$c233 = /^[a-z]/,
+        peg$c234 = peg$classExpectation([["a", "z"]], false, false),
+        peg$c235 = /^[ ]/,
+        peg$c236 = peg$classExpectation([" "], false, false),
+        peg$c237 = peg$anyExpectation(),
+        peg$c238 = "\r",
+        peg$c239 = peg$literalExpectation("\r", false),
+        peg$c240 = "\n",
+        peg$c241 = peg$literalExpectation("\n", false),
+        peg$c242 = "//",
+        peg$c243 = peg$literalExpectation("//", false),
+        peg$c244 = function(marker) {
             if (marker === '#' && !deprecatedCommentWarningShown) {
               console.warn("'#' for comments is deprecated. Please use '//' instead");
               deprecatedCommentWarningShown = true;
@@ -11435,7 +11202,7 @@ class XenElement extends HTMLElement {
     }
 
     function peg$parseParticleSlot() {
-      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12;
+      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13;
 
       s0 = peg$currPos;
       s1 = peg$currPos;
@@ -11500,63 +11267,86 @@ class XenElement extends HTMLElement {
             if (s4 !== peg$FAILED) {
               s5 = peg$parselowerIdent();
               if (s5 !== peg$FAILED) {
-                s6 = peg$parseeolWhiteSpace();
-                if (s6 !== peg$FAILED) {
-                  s7 = peg$currPos;
-                  s8 = peg$parseIndent();
+                s6 = peg$currPos;
+                s7 = peg$parsewhiteSpace();
+                if (s7 !== peg$FAILED) {
+                  s8 = peg$parseTagList();
                   if (s8 !== peg$FAILED) {
-                    s9 = [];
-                    s10 = peg$currPos;
-                    s11 = peg$parseSameIndent();
-                    if (s11 !== peg$FAILED) {
-                      s12 = peg$parseParticleSlotItem();
+                    s7 = [s7, s8];
+                    s6 = s7;
+                  } else {
+                    peg$currPos = s6;
+                    s6 = peg$FAILED;
+                  }
+                } else {
+                  peg$currPos = s6;
+                  s6 = peg$FAILED;
+                }
+                if (s6 === peg$FAILED) {
+                  s6 = null;
+                }
+                if (s6 !== peg$FAILED) {
+                  s7 = peg$parseeolWhiteSpace();
+                  if (s7 !== peg$FAILED) {
+                    s8 = peg$currPos;
+                    s9 = peg$parseIndent();
+                    if (s9 !== peg$FAILED) {
+                      s10 = [];
+                      s11 = peg$currPos;
+                      s12 = peg$parseSameIndent();
                       if (s12 !== peg$FAILED) {
-                        s11 = [s11, s12];
-                        s10 = s11;
-                      } else {
-                        peg$currPos = s10;
-                        s10 = peg$FAILED;
-                      }
-                    } else {
-                      peg$currPos = s10;
-                      s10 = peg$FAILED;
-                    }
-                    while (s10 !== peg$FAILED) {
-                      s9.push(s10);
-                      s10 = peg$currPos;
-                      s11 = peg$parseSameIndent();
-                      if (s11 !== peg$FAILED) {
-                        s12 = peg$parseParticleSlotItem();
-                        if (s12 !== peg$FAILED) {
-                          s11 = [s11, s12];
-                          s10 = s11;
+                        s13 = peg$parseParticleSlotItem();
+                        if (s13 !== peg$FAILED) {
+                          s12 = [s12, s13];
+                          s11 = s12;
                         } else {
-                          peg$currPos = s10;
-                          s10 = peg$FAILED;
+                          peg$currPos = s11;
+                          s11 = peg$FAILED;
                         }
                       } else {
-                        peg$currPos = s10;
-                        s10 = peg$FAILED;
+                        peg$currPos = s11;
+                        s11 = peg$FAILED;
                       }
-                    }
-                    if (s9 !== peg$FAILED) {
-                      s8 = [s8, s9];
-                      s7 = s8;
+                      while (s11 !== peg$FAILED) {
+                        s10.push(s11);
+                        s11 = peg$currPos;
+                        s12 = peg$parseSameIndent();
+                        if (s12 !== peg$FAILED) {
+                          s13 = peg$parseParticleSlotItem();
+                          if (s13 !== peg$FAILED) {
+                            s12 = [s12, s13];
+                            s11 = s12;
+                          } else {
+                            peg$currPos = s11;
+                            s11 = peg$FAILED;
+                          }
+                        } else {
+                          peg$currPos = s11;
+                          s11 = peg$FAILED;
+                        }
+                      }
+                      if (s10 !== peg$FAILED) {
+                        s9 = [s9, s10];
+                        s8 = s9;
+                      } else {
+                        peg$currPos = s8;
+                        s8 = peg$FAILED;
+                      }
                     } else {
-                      peg$currPos = s7;
-                      s7 = peg$FAILED;
+                      peg$currPos = s8;
+                      s8 = peg$FAILED;
                     }
-                  } else {
-                    peg$currPos = s7;
-                    s7 = peg$FAILED;
-                  }
-                  if (s7 === peg$FAILED) {
-                    s7 = null;
-                  }
-                  if (s7 !== peg$FAILED) {
-                    peg$savedPos = s0;
-                    s1 = peg$c104(s1, s4, s5, s7);
-                    s0 = s1;
+                    if (s8 === peg$FAILED) {
+                      s8 = null;
+                    }
+                    if (s8 !== peg$FAILED) {
+                      peg$savedPos = s0;
+                      s1 = peg$c104(s1, s4, s5, s6, s8);
+                      s0 = s1;
+                    } else {
+                      peg$currPos = s0;
+                      s0 = peg$FAILED;
+                    }
                   } else {
                     peg$currPos = s0;
                     s0 = peg$FAILED;
@@ -11675,7 +11465,7 @@ class XenElement extends HTMLElement {
     }
 
     function peg$parseParticleProvidedSlot() {
-      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11;
+      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12;
 
       s0 = peg$currPos;
       if (input.substr(peg$currPos, 7) === peg$c53) {
@@ -11715,63 +11505,86 @@ class XenElement extends HTMLElement {
           if (s3 !== peg$FAILED) {
             s4 = peg$parselowerIdent();
             if (s4 !== peg$FAILED) {
-              s5 = peg$parseeolWhiteSpace();
-              if (s5 !== peg$FAILED) {
-                s6 = peg$currPos;
-                s7 = peg$parseIndent();
+              s5 = peg$currPos;
+              s6 = peg$parsewhiteSpace();
+              if (s6 !== peg$FAILED) {
+                s7 = peg$parseTagList();
                 if (s7 !== peg$FAILED) {
-                  s8 = [];
-                  s9 = peg$currPos;
-                  s10 = peg$parseSameIndent();
-                  if (s10 !== peg$FAILED) {
-                    s11 = peg$parseParticleProvidedSlotItem();
+                  s6 = [s6, s7];
+                  s5 = s6;
+                } else {
+                  peg$currPos = s5;
+                  s5 = peg$FAILED;
+                }
+              } else {
+                peg$currPos = s5;
+                s5 = peg$FAILED;
+              }
+              if (s5 === peg$FAILED) {
+                s5 = null;
+              }
+              if (s5 !== peg$FAILED) {
+                s6 = peg$parseeolWhiteSpace();
+                if (s6 !== peg$FAILED) {
+                  s7 = peg$currPos;
+                  s8 = peg$parseIndent();
+                  if (s8 !== peg$FAILED) {
+                    s9 = [];
+                    s10 = peg$currPos;
+                    s11 = peg$parseSameIndent();
                     if (s11 !== peg$FAILED) {
-                      s10 = [s10, s11];
-                      s9 = s10;
-                    } else {
-                      peg$currPos = s9;
-                      s9 = peg$FAILED;
-                    }
-                  } else {
-                    peg$currPos = s9;
-                    s9 = peg$FAILED;
-                  }
-                  while (s9 !== peg$FAILED) {
-                    s8.push(s9);
-                    s9 = peg$currPos;
-                    s10 = peg$parseSameIndent();
-                    if (s10 !== peg$FAILED) {
-                      s11 = peg$parseParticleProvidedSlotItem();
-                      if (s11 !== peg$FAILED) {
-                        s10 = [s10, s11];
-                        s9 = s10;
+                      s12 = peg$parseParticleProvidedSlotItem();
+                      if (s12 !== peg$FAILED) {
+                        s11 = [s11, s12];
+                        s10 = s11;
                       } else {
-                        peg$currPos = s9;
-                        s9 = peg$FAILED;
+                        peg$currPos = s10;
+                        s10 = peg$FAILED;
                       }
                     } else {
-                      peg$currPos = s9;
-                      s9 = peg$FAILED;
+                      peg$currPos = s10;
+                      s10 = peg$FAILED;
                     }
-                  }
-                  if (s8 !== peg$FAILED) {
-                    s7 = [s7, s8];
-                    s6 = s7;
+                    while (s10 !== peg$FAILED) {
+                      s9.push(s10);
+                      s10 = peg$currPos;
+                      s11 = peg$parseSameIndent();
+                      if (s11 !== peg$FAILED) {
+                        s12 = peg$parseParticleProvidedSlotItem();
+                        if (s12 !== peg$FAILED) {
+                          s11 = [s11, s12];
+                          s10 = s11;
+                        } else {
+                          peg$currPos = s10;
+                          s10 = peg$FAILED;
+                        }
+                      } else {
+                        peg$currPos = s10;
+                        s10 = peg$FAILED;
+                      }
+                    }
+                    if (s9 !== peg$FAILED) {
+                      s8 = [s8, s9];
+                      s7 = s8;
+                    } else {
+                      peg$currPos = s7;
+                      s7 = peg$FAILED;
+                    }
                   } else {
-                    peg$currPos = s6;
-                    s6 = peg$FAILED;
+                    peg$currPos = s7;
+                    s7 = peg$FAILED;
                   }
-                } else {
-                  peg$currPos = s6;
-                  s6 = peg$FAILED;
-                }
-                if (s6 === peg$FAILED) {
-                  s6 = null;
-                }
-                if (s6 !== peg$FAILED) {
-                  peg$savedPos = s0;
-                  s1 = peg$c116(s3, s4, s6);
-                  s0 = s1;
+                  if (s7 === peg$FAILED) {
+                    s7 = null;
+                  }
+                  if (s7 !== peg$FAILED) {
+                    peg$savedPos = s0;
+                    s1 = peg$c116(s3, s4, s5, s7);
+                    s0 = s1;
+                  } else {
+                    peg$currPos = s0;
+                    s0 = peg$FAILED;
+                  }
                 } else {
                   peg$currPos = s0;
                   s0 = peg$FAILED;
@@ -12124,7 +11937,7 @@ class XenElement extends HTMLElement {
 
       s0 = peg$parseRecipeParticle();
       if (s0 === peg$FAILED) {
-        s0 = peg$parseRecipeView();
+        s0 = peg$parseRecipeHandle();
         if (s0 === peg$FAILED) {
           s0 = peg$parseRecipeSlot();
           if (s0 === peg$FAILED) {
@@ -12831,7 +12644,7 @@ class XenElement extends HTMLElement {
       return s0;
     }
 
-    function peg$parseRecipeView() {
+    function peg$parseRecipeHandle() {
       var s0, s1, s2, s3, s4, s5;
 
       s0 = peg$currPos;
@@ -12882,7 +12695,7 @@ class XenElement extends HTMLElement {
         s2 = peg$currPos;
         s3 = peg$parsewhiteSpace();
         if (s3 !== peg$FAILED) {
-          s4 = peg$parseViewRef();
+          s4 = peg$parseHandleOrSlotRef();
           if (s4 !== peg$FAILED) {
             s3 = [s3, s4];
             s2 = s3;
@@ -13137,7 +12950,7 @@ class XenElement extends HTMLElement {
       return s0;
     }
 
-    function peg$parseViewRef() {
+    function peg$parseHandleOrSlotRef() {
       var s0, s1, s2;
 
       s0 = peg$currPos;
@@ -13208,7 +13021,7 @@ class XenElement extends HTMLElement {
         s2 = peg$currPos;
         s3 = peg$parsewhiteSpace();
         if (s3 !== peg$FAILED) {
-          s4 = peg$parseid();
+          s4 = peg$parseHandleOrSlotRef();
           if (s4 !== peg$FAILED) {
             s3 = [s3, s4];
             s2 = s3;
@@ -13391,7 +13204,7 @@ class XenElement extends HTMLElement {
     }
 
     function peg$parseSchemaInline() {
-      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9;
+      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10;
 
       s0 = peg$currPos;
       s1 = peg$parseupperIdent();
@@ -13415,10 +13228,10 @@ class XenElement extends HTMLElement {
             if (peg$silentFails === 0) { peg$fail(peg$c181); }
           }
           if (s3 !== peg$FAILED) {
-            s4 = [];
-            s5 = peg$currPos;
-            s6 = peg$parseSchemaInlineField();
-            if (s6 !== peg$FAILED) {
+            s4 = peg$currPos;
+            s5 = peg$parseSchemaInlineField();
+            if (s5 !== peg$FAILED) {
+              s6 = [];
               s7 = peg$currPos;
               if (input.charCodeAt(peg$currPos) === 44) {
                 s8 = peg$c45;
@@ -13430,8 +13243,14 @@ class XenElement extends HTMLElement {
               if (s8 !== peg$FAILED) {
                 s9 = peg$parsewhiteSpace();
                 if (s9 !== peg$FAILED) {
-                  s8 = [s8, s9];
-                  s7 = s8;
+                  s10 = peg$parseSchemaInlineField();
+                  if (s10 !== peg$FAILED) {
+                    s8 = [s8, s9, s10];
+                    s7 = s8;
+                  } else {
+                    peg$currPos = s7;
+                    s7 = peg$FAILED;
+                  }
                 } else {
                   peg$currPos = s7;
                   s7 = peg$FAILED;
@@ -13440,38 +13259,22 @@ class XenElement extends HTMLElement {
                 peg$currPos = s7;
                 s7 = peg$FAILED;
               }
-              if (s7 === peg$FAILED) {
-                s7 = null;
-              }
-              if (s7 !== peg$FAILED) {
-                s6 = [s6, s7];
-                s5 = s6;
-              } else {
-                peg$currPos = s5;
-                s5 = peg$FAILED;
-              }
-            } else {
-              peg$currPos = s5;
-              s5 = peg$FAILED;
-            }
-            if (s5 !== peg$FAILED) {
-              while (s5 !== peg$FAILED) {
-                s4.push(s5);
-                s5 = peg$currPos;
-                s6 = peg$parseSchemaInlineField();
-                if (s6 !== peg$FAILED) {
-                  s7 = peg$currPos;
-                  if (input.charCodeAt(peg$currPos) === 44) {
-                    s8 = peg$c45;
-                    peg$currPos++;
-                  } else {
-                    s8 = peg$FAILED;
-                    if (peg$silentFails === 0) { peg$fail(peg$c46); }
-                  }
-                  if (s8 !== peg$FAILED) {
-                    s9 = peg$parsewhiteSpace();
-                    if (s9 !== peg$FAILED) {
-                      s8 = [s8, s9];
+              while (s7 !== peg$FAILED) {
+                s6.push(s7);
+                s7 = peg$currPos;
+                if (input.charCodeAt(peg$currPos) === 44) {
+                  s8 = peg$c45;
+                  peg$currPos++;
+                } else {
+                  s8 = peg$FAILED;
+                  if (peg$silentFails === 0) { peg$fail(peg$c46); }
+                }
+                if (s8 !== peg$FAILED) {
+                  s9 = peg$parsewhiteSpace();
+                  if (s9 !== peg$FAILED) {
+                    s10 = peg$parseSchemaInlineField();
+                    if (s10 !== peg$FAILED) {
+                      s8 = [s8, s9, s10];
                       s7 = s8;
                     } else {
                       peg$currPos = s7;
@@ -13481,23 +13284,24 @@ class XenElement extends HTMLElement {
                     peg$currPos = s7;
                     s7 = peg$FAILED;
                   }
-                  if (s7 === peg$FAILED) {
-                    s7 = null;
-                  }
-                  if (s7 !== peg$FAILED) {
-                    s6 = [s6, s7];
-                    s5 = s6;
-                  } else {
-                    peg$currPos = s5;
-                    s5 = peg$FAILED;
-                  }
                 } else {
-                  peg$currPos = s5;
-                  s5 = peg$FAILED;
+                  peg$currPos = s7;
+                  s7 = peg$FAILED;
                 }
               }
+              if (s6 !== peg$FAILED) {
+                s5 = [s5, s6];
+                s4 = s5;
+              } else {
+                peg$currPos = s4;
+                s4 = peg$FAILED;
+              }
             } else {
+              peg$currPos = s4;
               s4 = peg$FAILED;
+            }
+            if (s4 === peg$FAILED) {
+              s4 = null;
             }
             if (s4 !== peg$FAILED) {
               if (input.charCodeAt(peg$currPos) === 125) {
@@ -13536,31 +13340,33 @@ class XenElement extends HTMLElement {
     }
 
     function peg$parseSchemaInlineField() {
-      var s0, s1, s2, s3, s4;
+      var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      s1 = peg$parseSchemaType();
-      if (s1 !== peg$FAILED) {
-        s2 = peg$parseSchemaArity();
-        if (s2 === peg$FAILED) {
-          s2 = null;
+      s1 = peg$currPos;
+      s2 = peg$parseSchemaType();
+      if (s2 !== peg$FAILED) {
+        s3 = peg$parsewhiteSpace();
+        if (s3 !== peg$FAILED) {
+          s2 = [s2, s3];
+          s1 = s2;
+        } else {
+          peg$currPos = s1;
+          s1 = peg$FAILED;
         }
+      } else {
+        peg$currPos = s1;
+        s1 = peg$FAILED;
+      }
+      if (s1 === peg$FAILED) {
+        s1 = null;
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$parselowerIdent();
         if (s2 !== peg$FAILED) {
-          s3 = peg$parsewhiteSpace();
-          if (s3 !== peg$FAILED) {
-            s4 = peg$parselowerIdent();
-            if (s4 !== peg$FAILED) {
-              peg$savedPos = s0;
-              s1 = peg$c185(s1, s2, s4);
-              s0 = s1;
-            } else {
-              peg$currPos = s0;
-              s0 = peg$FAILED;
-            }
-          } else {
-            peg$currPos = s0;
-            s0 = peg$FAILED;
-          }
+          peg$savedPos = s0;
+          s1 = peg$c185(s1, s2);
+          s0 = s1;
         } else {
           peg$currPos = s0;
           s0 = peg$FAILED;
@@ -13786,20 +13592,6 @@ class XenElement extends HTMLElement {
       return s0;
     }
 
-    function peg$parseSchemaArity() {
-      var s0;
-
-      if (input.charCodeAt(peg$currPos) === 63) {
-        s0 = peg$c73;
-        peg$currPos++;
-      } else {
-        s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c74); }
-      }
-
-      return s0;
-    }
-
     function peg$parseSchemaField() {
       var s0, s1, s2, s3;
 
@@ -13835,6 +13627,9 @@ class XenElement extends HTMLElement {
       s0 = peg$parseSchemaPrimitiveType();
       if (s0 === peg$FAILED) {
         s0 = peg$parseSchemaUnionType();
+        if (s0 === peg$FAILED) {
+          s0 = peg$parseSchemaTupleType();
+        }
       }
 
       return s0;
@@ -13943,25 +13738,30 @@ class XenElement extends HTMLElement {
               peg$currPos = s5;
               s5 = peg$FAILED;
             }
-            while (s5 !== peg$FAILED) {
-              s4.push(s5);
-              s5 = peg$currPos;
-              s6 = peg$parsewhiteSpace();
-              if (s6 !== peg$FAILED) {
-                if (input.substr(peg$currPos, 2) === peg$c205) {
-                  s7 = peg$c205;
-                  peg$currPos += 2;
-                } else {
-                  s7 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c206); }
-                }
-                if (s7 !== peg$FAILED) {
-                  s8 = peg$parsewhiteSpace();
-                  if (s8 !== peg$FAILED) {
-                    s9 = peg$parseSchemaPrimitiveType();
-                    if (s9 !== peg$FAILED) {
-                      s6 = [s6, s7, s8, s9];
-                      s5 = s6;
+            if (s5 !== peg$FAILED) {
+              while (s5 !== peg$FAILED) {
+                s4.push(s5);
+                s5 = peg$currPos;
+                s6 = peg$parsewhiteSpace();
+                if (s6 !== peg$FAILED) {
+                  if (input.substr(peg$currPos, 2) === peg$c205) {
+                    s7 = peg$c205;
+                    peg$currPos += 2;
+                  } else {
+                    s7 = peg$FAILED;
+                    if (peg$silentFails === 0) { peg$fail(peg$c206); }
+                  }
+                  if (s7 !== peg$FAILED) {
+                    s8 = peg$parsewhiteSpace();
+                    if (s8 !== peg$FAILED) {
+                      s9 = peg$parseSchemaPrimitiveType();
+                      if (s9 !== peg$FAILED) {
+                        s6 = [s6, s7, s8, s9];
+                        s5 = s6;
+                      } else {
+                        peg$currPos = s5;
+                        s5 = peg$FAILED;
+                      }
                     } else {
                       peg$currPos = s5;
                       s5 = peg$FAILED;
@@ -13974,10 +13774,9 @@ class XenElement extends HTMLElement {
                   peg$currPos = s5;
                   s5 = peg$FAILED;
                 }
-              } else {
-                peg$currPos = s5;
-                s5 = peg$FAILED;
               }
+            } else {
+              s4 = peg$FAILED;
             }
             if (s4 !== peg$FAILED) {
               s5 = peg$parsewhiteSpace();
@@ -14024,6 +13823,152 @@ class XenElement extends HTMLElement {
       return s0;
     }
 
+    function peg$parseSchemaTupleType() {
+      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9;
+
+      s0 = peg$currPos;
+      if (input.charCodeAt(peg$currPos) === 40) {
+        s1 = peg$c40;
+        peg$currPos++;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c41); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$parsewhiteSpace();
+        if (s2 === peg$FAILED) {
+          s2 = null;
+        }
+        if (s2 !== peg$FAILED) {
+          s3 = peg$parseSchemaPrimitiveType();
+          if (s3 !== peg$FAILED) {
+            s4 = [];
+            s5 = peg$currPos;
+            s6 = peg$parsewhiteSpace();
+            if (s6 === peg$FAILED) {
+              s6 = null;
+            }
+            if (s6 !== peg$FAILED) {
+              if (input.charCodeAt(peg$currPos) === 44) {
+                s7 = peg$c45;
+                peg$currPos++;
+              } else {
+                s7 = peg$FAILED;
+                if (peg$silentFails === 0) { peg$fail(peg$c46); }
+              }
+              if (s7 !== peg$FAILED) {
+                s8 = peg$parsewhiteSpace();
+                if (s8 === peg$FAILED) {
+                  s8 = null;
+                }
+                if (s8 !== peg$FAILED) {
+                  s9 = peg$parseSchemaPrimitiveType();
+                  if (s9 !== peg$FAILED) {
+                    s6 = [s6, s7, s8, s9];
+                    s5 = s6;
+                  } else {
+                    peg$currPos = s5;
+                    s5 = peg$FAILED;
+                  }
+                } else {
+                  peg$currPos = s5;
+                  s5 = peg$FAILED;
+                }
+              } else {
+                peg$currPos = s5;
+                s5 = peg$FAILED;
+              }
+            } else {
+              peg$currPos = s5;
+              s5 = peg$FAILED;
+            }
+            while (s5 !== peg$FAILED) {
+              s4.push(s5);
+              s5 = peg$currPos;
+              s6 = peg$parsewhiteSpace();
+              if (s6 === peg$FAILED) {
+                s6 = null;
+              }
+              if (s6 !== peg$FAILED) {
+                if (input.charCodeAt(peg$currPos) === 44) {
+                  s7 = peg$c45;
+                  peg$currPos++;
+                } else {
+                  s7 = peg$FAILED;
+                  if (peg$silentFails === 0) { peg$fail(peg$c46); }
+                }
+                if (s7 !== peg$FAILED) {
+                  s8 = peg$parsewhiteSpace();
+                  if (s8 === peg$FAILED) {
+                    s8 = null;
+                  }
+                  if (s8 !== peg$FAILED) {
+                    s9 = peg$parseSchemaPrimitiveType();
+                    if (s9 !== peg$FAILED) {
+                      s6 = [s6, s7, s8, s9];
+                      s5 = s6;
+                    } else {
+                      peg$currPos = s5;
+                      s5 = peg$FAILED;
+                    }
+                  } else {
+                    peg$currPos = s5;
+                    s5 = peg$FAILED;
+                  }
+                } else {
+                  peg$currPos = s5;
+                  s5 = peg$FAILED;
+                }
+              } else {
+                peg$currPos = s5;
+                s5 = peg$FAILED;
+              }
+            }
+            if (s4 !== peg$FAILED) {
+              s5 = peg$parsewhiteSpace();
+              if (s5 === peg$FAILED) {
+                s5 = null;
+              }
+              if (s5 !== peg$FAILED) {
+                if (input.charCodeAt(peg$currPos) === 41) {
+                  s6 = peg$c42;
+                  peg$currPos++;
+                } else {
+                  s6 = peg$FAILED;
+                  if (peg$silentFails === 0) { peg$fail(peg$c43); }
+                }
+                if (s6 !== peg$FAILED) {
+                  peg$savedPos = s0;
+                  s1 = peg$c208(s3, s4);
+                  s0 = s1;
+                } else {
+                  peg$currPos = s0;
+                  s0 = peg$FAILED;
+                }
+              } else {
+                peg$currPos = s0;
+                s0 = peg$FAILED;
+              }
+            } else {
+              peg$currPos = s0;
+              s0 = peg$FAILED;
+            }
+          } else {
+            peg$currPos = s0;
+            s0 = peg$FAILED;
+          }
+        } else {
+          peg$currPos = s0;
+          s0 = peg$FAILED;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$FAILED;
+      }
+
+      return s0;
+    }
+
     function peg$parseVersion() {
       var s0, s1, s2, s3;
 
@@ -14037,22 +13982,22 @@ class XenElement extends HTMLElement {
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
-        if (peg$c208.test(input.charAt(peg$currPos))) {
+        if (peg$c209.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c209); }
+          if (peg$silentFails === 0) { peg$fail(peg$c210); }
         }
         if (s3 !== peg$FAILED) {
           while (s3 !== peg$FAILED) {
             s2.push(s3);
-            if (peg$c208.test(input.charAt(peg$currPos))) {
+            if (peg$c209.test(input.charAt(peg$currPos))) {
               s3 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c209); }
+              if (peg$silentFails === 0) { peg$fail(peg$c210); }
             }
           }
         } else {
@@ -14060,7 +14005,7 @@ class XenElement extends HTMLElement {
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c210(s2);
+          s1 = peg$c211(s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -14082,21 +14027,21 @@ class XenElement extends HTMLElement {
       s1 = peg$currPos;
       s2 = [];
       if (input.charCodeAt(peg$currPos) === 32) {
-        s3 = peg$c211;
+        s3 = peg$c212;
         peg$currPos++;
       } else {
         s3 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c212); }
+        if (peg$silentFails === 0) { peg$fail(peg$c213); }
       }
       if (s3 !== peg$FAILED) {
         while (s3 !== peg$FAILED) {
           s2.push(s3);
           if (input.charCodeAt(peg$currPos) === 32) {
-            s3 = peg$c211;
+            s3 = peg$c212;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c212); }
+            if (peg$silentFails === 0) { peg$fail(peg$c213); }
           }
         }
       } else {
@@ -14104,7 +14049,7 @@ class XenElement extends HTMLElement {
       }
       if (s2 !== peg$FAILED) {
         peg$savedPos = peg$currPos;
-        s3 = peg$c213(s2);
+        s3 = peg$c214(s2);
         if (s3) {
           s3 = void 0;
         } else {
@@ -14141,105 +14086,20 @@ class XenElement extends HTMLElement {
       s2 = peg$currPos;
       s3 = [];
       if (input.charCodeAt(peg$currPos) === 32) {
-        s4 = peg$c211;
+        s4 = peg$c212;
         peg$currPos++;
       } else {
         s4 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c212); }
+        if (peg$silentFails === 0) { peg$fail(peg$c213); }
       }
       while (s4 !== peg$FAILED) {
         s3.push(s4);
         if (input.charCodeAt(peg$currPos) === 32) {
-          s4 = peg$c211;
+          s4 = peg$c212;
           peg$currPos++;
         } else {
           s4 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c212); }
-        }
-      }
-      if (s3 !== peg$FAILED) {
-        peg$savedPos = peg$currPos;
-        s4 = peg$c214(s3);
-        if (s4) {
-          s4 = void 0;
-        } else {
-          s4 = peg$FAILED;
-        }
-        if (s4 !== peg$FAILED) {
-          s3 = [s3, s4];
-          s2 = s3;
-        } else {
-          peg$currPos = s2;
-          s2 = peg$FAILED;
-        }
-      } else {
-        peg$currPos = s2;
-        s2 = peg$FAILED;
-      }
-      peg$silentFails--;
-      if (s2 !== peg$FAILED) {
-        peg$currPos = s1;
-        s1 = void 0;
-      } else {
-        s1 = peg$FAILED;
-      }
-      if (s1 !== peg$FAILED) {
-        s2 = [];
-        if (input.charCodeAt(peg$currPos) === 32) {
-          s3 = peg$c211;
-          peg$currPos++;
-        } else {
-          s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c212); }
-        }
-        while (s3 !== peg$FAILED) {
-          s2.push(s3);
-          if (input.charCodeAt(peg$currPos) === 32) {
-            s3 = peg$c211;
-            peg$currPos++;
-          } else {
-            s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c212); }
-          }
-        }
-        if (s2 !== peg$FAILED) {
-          s1 = [s1, s2];
-          s0 = s1;
-        } else {
-          peg$currPos = s0;
-          s0 = peg$FAILED;
-        }
-      } else {
-        peg$currPos = s0;
-        s0 = peg$FAILED;
-      }
-
-      return s0;
-    }
-
-    function peg$parseSameOrMoreIndent() {
-      var s0, s1, s2, s3, s4;
-
-      s0 = peg$currPos;
-      s1 = peg$currPos;
-      peg$silentFails++;
-      s2 = peg$currPos;
-      s3 = [];
-      if (input.charCodeAt(peg$currPos) === 32) {
-        s4 = peg$c211;
-        peg$currPos++;
-      } else {
-        s4 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c212); }
-      }
-      while (s4 !== peg$FAILED) {
-        s3.push(s4);
-        if (input.charCodeAt(peg$currPos) === 32) {
-          s4 = peg$c211;
-          peg$currPos++;
-        } else {
-          s4 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c212); }
+          if (peg$silentFails === 0) { peg$fail(peg$c213); }
         }
       }
       if (s3 !== peg$FAILED) {
@@ -14271,20 +14131,105 @@ class XenElement extends HTMLElement {
       if (s1 !== peg$FAILED) {
         s2 = [];
         if (input.charCodeAt(peg$currPos) === 32) {
-          s3 = peg$c211;
+          s3 = peg$c212;
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c212); }
+          if (peg$silentFails === 0) { peg$fail(peg$c213); }
         }
         while (s3 !== peg$FAILED) {
           s2.push(s3);
           if (input.charCodeAt(peg$currPos) === 32) {
-            s3 = peg$c211;
+            s3 = peg$c212;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c212); }
+            if (peg$silentFails === 0) { peg$fail(peg$c213); }
+          }
+        }
+        if (s2 !== peg$FAILED) {
+          s1 = [s1, s2];
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$FAILED;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$FAILED;
+      }
+
+      return s0;
+    }
+
+    function peg$parseSameOrMoreIndent() {
+      var s0, s1, s2, s3, s4;
+
+      s0 = peg$currPos;
+      s1 = peg$currPos;
+      peg$silentFails++;
+      s2 = peg$currPos;
+      s3 = [];
+      if (input.charCodeAt(peg$currPos) === 32) {
+        s4 = peg$c212;
+        peg$currPos++;
+      } else {
+        s4 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c213); }
+      }
+      while (s4 !== peg$FAILED) {
+        s3.push(s4);
+        if (input.charCodeAt(peg$currPos) === 32) {
+          s4 = peg$c212;
+          peg$currPos++;
+        } else {
+          s4 = peg$FAILED;
+          if (peg$silentFails === 0) { peg$fail(peg$c213); }
+        }
+      }
+      if (s3 !== peg$FAILED) {
+        peg$savedPos = peg$currPos;
+        s4 = peg$c216(s3);
+        if (s4) {
+          s4 = void 0;
+        } else {
+          s4 = peg$FAILED;
+        }
+        if (s4 !== peg$FAILED) {
+          s3 = [s3, s4];
+          s2 = s3;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$FAILED;
+        }
+      } else {
+        peg$currPos = s2;
+        s2 = peg$FAILED;
+      }
+      peg$silentFails--;
+      if (s2 !== peg$FAILED) {
+        peg$currPos = s1;
+        s1 = void 0;
+      } else {
+        s1 = peg$FAILED;
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = [];
+        if (input.charCodeAt(peg$currPos) === 32) {
+          s3 = peg$c212;
+          peg$currPos++;
+        } else {
+          s3 = peg$FAILED;
+          if (peg$silentFails === 0) { peg$fail(peg$c213); }
+        }
+        while (s3 !== peg$FAILED) {
+          s2.push(s3);
+          if (input.charCodeAt(peg$currPos) === 32) {
+            s3 = peg$c212;
+            peg$currPos++;
+          } else {
+            s3 = peg$FAILED;
+            if (peg$silentFails === 0) { peg$fail(peg$c213); }
           }
         }
         if (s2 !== peg$FAILED) {
@@ -14312,7 +14257,7 @@ class XenElement extends HTMLElement {
         s1 = peg$parselowerIdent();
         if (s1 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c216();
+          s1 = peg$c217();
         }
         s0 = s1;
       }
@@ -14325,30 +14270,30 @@ class XenElement extends HTMLElement {
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 96) {
-        s1 = peg$c217;
+        s1 = peg$c218;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c218); }
+        if (peg$silentFails === 0) { peg$fail(peg$c219); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
-        if (peg$c219.test(input.charAt(peg$currPos))) {
+        if (peg$c220.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c220); }
+          if (peg$silentFails === 0) { peg$fail(peg$c221); }
         }
         if (s3 !== peg$FAILED) {
           while (s3 !== peg$FAILED) {
             s2.push(s3);
-            if (peg$c219.test(input.charAt(peg$currPos))) {
+            if (peg$c220.test(input.charAt(peg$currPos))) {
               s3 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c220); }
+              if (peg$silentFails === 0) { peg$fail(peg$c221); }
             }
           }
         } else {
@@ -14356,15 +14301,15 @@ class XenElement extends HTMLElement {
         }
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 96) {
-            s3 = peg$c217;
+            s3 = peg$c218;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c218); }
+            if (peg$silentFails === 0) { peg$fail(peg$c219); }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c221(s2);
+            s1 = peg$c222(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -14387,30 +14332,30 @@ class XenElement extends HTMLElement {
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 39) {
-        s1 = peg$c222;
+        s1 = peg$c223;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c223); }
+        if (peg$silentFails === 0) { peg$fail(peg$c224); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
-        if (peg$c224.test(input.charAt(peg$currPos))) {
+        if (peg$c225.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c225); }
+          if (peg$silentFails === 0) { peg$fail(peg$c226); }
         }
         if (s3 !== peg$FAILED) {
           while (s3 !== peg$FAILED) {
             s2.push(s3);
-            if (peg$c224.test(input.charAt(peg$currPos))) {
+            if (peg$c225.test(input.charAt(peg$currPos))) {
               s3 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c225); }
+              if (peg$silentFails === 0) { peg$fail(peg$c226); }
             }
           }
         } else {
@@ -14418,15 +14363,15 @@ class XenElement extends HTMLElement {
         }
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 39) {
-            s3 = peg$c222;
+            s3 = peg$c223;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c223); }
+            if (peg$silentFails === 0) { peg$fail(peg$c224); }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c226(s2);
+            s1 = peg$c227(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -14449,30 +14394,30 @@ class XenElement extends HTMLElement {
 
       s0 = peg$currPos;
       s1 = peg$currPos;
-      if (peg$c227.test(input.charAt(peg$currPos))) {
+      if (peg$c228.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c228); }
+        if (peg$silentFails === 0) { peg$fail(peg$c229); }
       }
       if (s2 !== peg$FAILED) {
         s3 = [];
-        if (peg$c229.test(input.charAt(peg$currPos))) {
+        if (peg$c230.test(input.charAt(peg$currPos))) {
           s4 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s4 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c230); }
+          if (peg$silentFails === 0) { peg$fail(peg$c231); }
         }
         while (s4 !== peg$FAILED) {
           s3.push(s4);
-          if (peg$c229.test(input.charAt(peg$currPos))) {
+          if (peg$c230.test(input.charAt(peg$currPos))) {
             s4 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c230); }
+            if (peg$silentFails === 0) { peg$fail(peg$c231); }
           }
         }
         if (s3 !== peg$FAILED) {
@@ -14488,7 +14433,7 @@ class XenElement extends HTMLElement {
       }
       if (s1 !== peg$FAILED) {
         peg$savedPos = s0;
-        s1 = peg$c231(s1);
+        s1 = peg$c232(s1);
       }
       s0 = s1;
 
@@ -14500,30 +14445,30 @@ class XenElement extends HTMLElement {
 
       s0 = peg$currPos;
       s1 = peg$currPos;
-      if (peg$c232.test(input.charAt(peg$currPos))) {
+      if (peg$c233.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c233); }
+        if (peg$silentFails === 0) { peg$fail(peg$c234); }
       }
       if (s2 !== peg$FAILED) {
         s3 = [];
-        if (peg$c229.test(input.charAt(peg$currPos))) {
+        if (peg$c230.test(input.charAt(peg$currPos))) {
           s4 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s4 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c230); }
+          if (peg$silentFails === 0) { peg$fail(peg$c231); }
         }
         while (s4 !== peg$FAILED) {
           s3.push(s4);
-          if (peg$c229.test(input.charAt(peg$currPos))) {
+          if (peg$c230.test(input.charAt(peg$currPos))) {
             s4 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c230); }
+            if (peg$silentFails === 0) { peg$fail(peg$c231); }
           }
         }
         if (s3 !== peg$FAILED) {
@@ -14539,7 +14484,7 @@ class XenElement extends HTMLElement {
       }
       if (s1 !== peg$FAILED) {
         peg$savedPos = s0;
-        s1 = peg$c231(s1);
+        s1 = peg$c232(s1);
       }
       s0 = s1;
 
@@ -14551,21 +14496,21 @@ class XenElement extends HTMLElement {
 
       s0 = [];
       if (input.charCodeAt(peg$currPos) === 32) {
-        s1 = peg$c211;
+        s1 = peg$c212;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c212); }
+        if (peg$silentFails === 0) { peg$fail(peg$c213); }
       }
       if (s1 !== peg$FAILED) {
         while (s1 !== peg$FAILED) {
           s0.push(s1);
           if (input.charCodeAt(peg$currPos) === 32) {
-            s1 = peg$c211;
+            s1 = peg$c212;
             peg$currPos++;
           } else {
             s1 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c212); }
+            if (peg$silentFails === 0) { peg$fail(peg$c213); }
           }
         }
       } else {
@@ -14580,21 +14525,21 @@ class XenElement extends HTMLElement {
 
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c234.test(input.charAt(peg$currPos))) {
+      if (peg$c235.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c235); }
+        if (peg$silentFails === 0) { peg$fail(peg$c236); }
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c234.test(input.charAt(peg$currPos))) {
+        if (peg$c235.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c235); }
+          if (peg$silentFails === 0) { peg$fail(peg$c236); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -14605,7 +14550,7 @@ class XenElement extends HTMLElement {
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c236); }
+          if (peg$silentFails === 0) { peg$fail(peg$c237); }
         }
         peg$silentFails--;
         if (s3 === peg$FAILED) {
@@ -14628,21 +14573,21 @@ class XenElement extends HTMLElement {
       if (s0 === peg$FAILED) {
         s0 = peg$currPos;
         s1 = [];
-        if (peg$c234.test(input.charAt(peg$currPos))) {
+        if (peg$c235.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c235); }
+          if (peg$silentFails === 0) { peg$fail(peg$c236); }
         }
         while (s2 !== peg$FAILED) {
           s1.push(s2);
-          if (peg$c234.test(input.charAt(peg$currPos))) {
+          if (peg$c235.test(input.charAt(peg$currPos))) {
             s2 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c235); }
+            if (peg$silentFails === 0) { peg$fail(peg$c236); }
           }
         }
         if (s1 !== peg$FAILED) {
@@ -14680,30 +14625,30 @@ class XenElement extends HTMLElement {
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 13) {
-        s1 = peg$c237;
+        s1 = peg$c238;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c238); }
+        if (peg$silentFails === 0) { peg$fail(peg$c239); }
       }
       if (s1 === peg$FAILED) {
         s1 = null;
       }
       if (s1 !== peg$FAILED) {
         if (input.charCodeAt(peg$currPos) === 10) {
-          s2 = peg$c239;
+          s2 = peg$c240;
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c240); }
+          if (peg$silentFails === 0) { peg$fail(peg$c241); }
         }
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 13) {
-            s3 = peg$c237;
+            s3 = peg$c238;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c238); }
+            if (peg$silentFails === 0) { peg$fail(peg$c239); }
           }
           if (s3 === peg$FAILED) {
             s3 = null;
@@ -14732,21 +14677,21 @@ class XenElement extends HTMLElement {
 
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c234.test(input.charAt(peg$currPos))) {
+      if (peg$c235.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c235); }
+        if (peg$silentFails === 0) { peg$fail(peg$c236); }
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c234.test(input.charAt(peg$currPos))) {
+        if (peg$c235.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c235); }
+          if (peg$silentFails === 0) { peg$fail(peg$c236); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -14758,12 +14703,12 @@ class XenElement extends HTMLElement {
           if (peg$silentFails === 0) { peg$fail(peg$c158); }
         }
         if (s2 === peg$FAILED) {
-          if (input.substr(peg$currPos, 2) === peg$c241) {
-            s2 = peg$c241;
+          if (input.substr(peg$currPos, 2) === peg$c242) {
+            s2 = peg$c242;
             peg$currPos += 2;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c242); }
+            if (peg$silentFails === 0) { peg$fail(peg$c243); }
           }
         }
         if (s2 !== peg$FAILED) {
@@ -14789,7 +14734,7 @@ class XenElement extends HTMLElement {
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c243(s2);
+              s1 = peg$c244(s2);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -14841,6 +14786,9 @@ class XenElement extends HTMLElement {
           }
           return;
         }
+        if (result.model) {
+          throw new Error(`unexpected 'model' in ${JSON.stringify(result)}`);
+        }
         if (!result.location) {
           throw new Error(`no 'location' in ${JSON.stringify(result)}`);
         }
@@ -14882,7 +14830,7 @@ class XenElement extends HTMLElement {
 })());
 
 /***/ }),
-/* 51 */
+/* 49 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -14927,39 +14875,11 @@ class AbstractDevtoolsChannel {
 
 
 /***/ }),
-/* 52 */
+/* 50 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__ = __webpack_require__(44);
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-
-
-
-
-let instance = null;
-/* harmony default export */ __webpack_exports__["a"] = ({
-  get: () => {
-    if (!instance) instance = new __WEBPACK_IMPORTED_MODULE_0__platform_devtools_channel_web_js__["a" /* default */]();
-    return instance;
-  }
-});
-
-
-/***/ }),
-/* 53 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__ = __webpack_require__(52);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__ = __webpack_require__(24);
 /**
  * @license
  * Copyright (c) 2018 Google Inc. All rights reserved.
@@ -15068,7 +14988,11 @@ class OuterPortAttachment {
   _describeHandleType(handleType) {
     switch (handleType.constructor.name) {
       case 'Type':
-        return `${handleType.tag} ${this._describeHandleType(handleType.data)}`;
+        switch (handleType.tag) {
+          case 'SetView': return `[${this._describeHandleType(handleType.data)}]`;
+          case 'Entity': return this._describeHandleType(handleType.data);
+          default: return `${handleType.tag} ${this._describeHandleType(handleType.data)}`;
+        }
       case 'Schema':
         return handleType.name;
       case 'Shape':
@@ -15082,7 +15006,97 @@ class OuterPortAttachment {
 
 
 /***/ }),
-/* 54 */
+/* 51 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__ = __webpack_require__(24);
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+class StrategyExplorerAdapter {
+  static processGenerations(generations) {
+    __WEBPACK_IMPORTED_MODULE_0__devtools_channel_provider_js__["a" /* default */].get().send({
+      messageType: 'generations',
+      // TODO: Implement simple serialization and move the logic in adapt()
+      //       into the Strategy Explorer proper.
+      messageBody: new StrategyExplorerAdapter().adapt(generations)
+    });
+  }
+  constructor() {
+    this.parentMap = new Map();
+    this.lastID = 0;
+  }
+  adapt(generations) {
+    return generations.map(pop => this._preparePopulation(pop));
+  }
+  _addExtraPredecessor(parent, hash) {
+    let extras = [];
+    if (parent && !this.parentMap.has(parent)) {
+      this.parentMap.set(parent, this.lastID);
+      parent.derivation.forEach(d => extras = extras.concat(this._addExtraPredecessor(d.parent, hash)));
+      extras.push({result: parent.result,
+                   score: parent.score,
+                   derivation: parent.derivation,
+                   description: parent.description,
+                   hash: hash,
+                   valid: parent.valid,
+                   active: parent.active,
+                   combined: true,
+                   id: this.lastID++});
+    }
+    return extras;
+  }
+  _preparePopulation(population) {
+    let extras = [];
+    population = population.map(recipe => {
+      let {result, score, derivation, description, hash, valid, active} = recipe;
+      recipe.derivation.forEach(d => extras = extras.concat(this._addExtraPredecessor(d.parent, hash)));
+      this.parentMap.set(recipe, this.lastID);
+      return {result, score, derivation, description, hash, valid, active, id: this.lastID++};
+    });
+    population = extras.concat(population);
+
+    population.forEach(item => {
+      item.derivation = item.derivation.map(derivItem => {
+        let parent, strategy;
+        if (derivItem.parent)
+          parent = this.parentMap.get(derivItem.parent);
+        if (derivItem.strategy)
+          strategy = derivItem.strategy.constructor.name;
+        return {parent, strategy};
+      });
+      item.resolved = item.result.isResolved();
+      let options = {showUnresolved: true, showInvalid: false, details: ''};
+      item.result = item.result.toString(options);
+    });
+    let populationMap = {};
+    population.forEach(item => {
+      if (populationMap[item.derivation[0].strategy] == undefined)
+        populationMap[item.derivation[0].strategy] = [];
+      populationMap[item.derivation[0].strategy].push(item);
+    });
+    let result = {population: []};
+    Object.keys(populationMap).forEach(strategy => {
+      result.population.push({strategy: strategy, recipes: populationMap[strategy]});
+    });
+    return result;
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = StrategyExplorerAdapter;
+
+
+
+/***/ }),
+/* 52 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -15313,13 +15327,13 @@ class DescriptionDomFormatter extends __WEBPACK_IMPORTED_MODULE_1__description_j
 
 
 /***/ }),
-/* 55 */
+/* 53 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__slot_js__ = __webpack_require__(32);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__dom_context_js__ = __webpack_require__(28);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__slot_js__ = __webpack_require__(30);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__dom_context_js__ = __webpack_require__(25);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -15462,12 +15476,12 @@ class DomSlot extends __WEBPACK_IMPORTED_MODULE_1__slot_js__["a" /* default */] 
 
 
 /***/ }),
-/* 56 */
+/* 54 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__inner_PEC_js__ = __webpack_require__(59);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__message_channel_js__ = __webpack_require__(61);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__inner_PEC_js__ = __webpack_require__(58);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__message_channel_js__ = __webpack_require__(60);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__loader_js__ = __webpack_require__(16);
 // @license
 // Copyright (c) 2017 Google Inc. All rights reserved.
@@ -15493,7 +15507,7 @@ class DomSlot extends __WEBPACK_IMPORTED_MODULE_1__slot_js__["a" /* default */] 
 
 
 /***/ }),
-/* 57 */
+/* 55 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -15508,7 +15522,90 @@ class DomSlot extends __WEBPACK_IMPORTED_MODULE_1__slot_js__["a" /* default */] 
 
 
 /***/ }),
-/* 58 */
+/* 56 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+
+
+class Id {
+  constructor(currentSession) {
+    this._session = currentSession;
+    this._currentSession = currentSession;
+    this._nextIdComponent = 0;
+    this._components = [];
+  }
+  static newSessionId() {
+    let session = Math.floor(Math.random() * Math.pow(2, 50)) + '';
+    return new Id(session);
+  }
+
+  fromString(string) {
+    let components = string.split(':');
+
+    let id = new Id(this._currentSession);
+
+    if (components[0][0] == '!') {
+      id._session = components[0].slice(1);
+      id._components = components.slice(1);
+    } else {
+      id._components = components;
+    }
+
+    return id;
+  }
+
+  toString() {
+    return `!${this._session}:${this._components.join(':')}`;
+  }
+
+  // Only use this for testing!
+  toStringWithoutSessionForTesting() {
+    return this._components.join(':');
+  }
+
+  createId(component) {
+    if (component == undefined)
+      component = '';
+    let id = new Id(this._currentSession);
+    id._components = this._components.slice();
+    id._components.push(component + this._nextIdComponent++);
+    return id;
+  }
+
+  equal(id) {
+    if (id._session !== this._session)
+      return false;
+    return this.equalWithoutSession(id);
+  }
+
+  // Only use this for testing!
+  equalWithoutSessionForTesting(id) {
+    if (id._components.length !== this._components.length)
+      return false;
+    for (let i = 0; i < id._components.length; i++)
+      if (id._components[i] !== this._components[i])
+        return false;
+    
+    return true;
+  }
+}
+/* harmony export (immutable) */ __webpack_exports__["a"] = Id;
+
+
+/***/ }),
+/* 57 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -15546,14 +15643,14 @@ class Identifier {
 
 
 /***/ }),
-/* 59 */
+/* 58 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 /* WEBPACK VAR INJECTION */(function(global) {/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__type_js__ = __webpack_require__(4);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__handle_js__ = __webpack_require__(29);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__handle_js__ = __webpack_require__(26);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__api_channel_js__ = __webpack_require__(25);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__api_channel_js__ = __webpack_require__(23);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__particle_spec_js__ = __webpack_require__(9);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_5__schema_js__ = __webpack_require__(8);
 /**
@@ -15831,7 +15928,7 @@ class InnerPEC {
     });
 
     for (let localHandle of handleMap.values()) {
-      let type = localHandle.underlyingView().type;
+      let type = localHandle.underlyingProxy().type;
       let schemaModel;
       if (type.isSetView && type.primitiveType().isEntity) {
         schemaModel = type.primitiveType().entitySchema;
@@ -15883,10 +15980,10 @@ class InnerPEC {
 
 /* harmony default export */ __webpack_exports__["a"] = (InnerPEC);
 
-/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(23)))
+/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(36)))
 
 /***/ }),
-/* 60 */
+/* 59 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -15914,7 +16011,7 @@ class ManifestMeta {
 
 
 /***/ }),
-/* 61 */
+/* 60 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -15981,13 +16078,13 @@ class MessageChannel {
 
 
 /***/ }),
-/* 62 */
+/* 61 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__particle_execution_context_js__ = __webpack_require__(63);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__particle_execution_context_js__ = __webpack_require__(62);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__api_channel_js__ = __webpack_require__(25);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__api_channel_js__ = __webpack_require__(23);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__manifest_js__ = __webpack_require__(11);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__loader_js__ = __webpack_require__(16);
 /**
@@ -16094,7 +16191,7 @@ class OuterPEC extends __WEBPACK_IMPORTED_MODULE_0__particle_execution_context_j
             error = `Recipe is not resolvable ${recipe0.toString({showUnresolved: true})}`;
           }
         } else {
-          error = 'Recipe could not be normalized';
+          error = `Recipe ${recipe0.toString()} could not be normalized`;
         }
       } else {
         error = 'No recipe defined';
@@ -16164,7 +16261,7 @@ class OuterPEC extends __WEBPACK_IMPORTED_MODULE_0__particle_execution_context_j
 
 
 /***/ }),
-/* 63 */
+/* 62 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -16212,7 +16309,7 @@ class ParticleExecutionContext {
 
 
 /***/ }),
-/* 64 */
+/* 63 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -16257,7 +16354,7 @@ class ConnectionConstraint {
 
 
 /***/ }),
-/* 65 */
+/* 64 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -16276,7 +16373,7 @@ class ConnectionConstraint {
 
 
 /***/ }),
-/* 66 */
+/* 65 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -16303,7 +16400,7 @@ class HandleConnection {
     this._rawType = undefined;
     this._direction = undefined;
     this._particle = particle;
-    this._view = undefined;
+    this._handle = undefined;
   }
 
   _clone(particle, cloneMap) {
@@ -16315,10 +16412,10 @@ class HandleConnection {
     handleConnection._type = this._type;
     handleConnection._rawType = this._rawType;
     handleConnection._direction = this._direction;
-    if (this._view != undefined) {
-      handleConnection._view = cloneMap.get(this._view);
-      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(handleConnection._view !== undefined);
-      handleConnection._view.connections.push(handleConnection);
+    if (this._handle != undefined) {
+      handleConnection._handle = cloneMap.get(this._handle);
+      __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(handleConnection._handle !== undefined);
+      handleConnection._handle.connections.push(handleConnection);
     }
     cloneMap.set(this, handleConnection);
     return handleConnection;
@@ -16335,7 +16432,7 @@ class HandleConnection {
     if ((cmp = __WEBPACK_IMPORTED_MODULE_1__util_js__["a" /* default */].compareComparables(this._particle, other._particle)) != 0) return cmp;
     if ((cmp = __WEBPACK_IMPORTED_MODULE_1__util_js__["a" /* default */].compareStrings(this._name, other._name)) != 0) return cmp;
     if ((cmp = __WEBPACK_IMPORTED_MODULE_1__util_js__["a" /* default */].compareArrays(this._tags, other._tags, __WEBPACK_IMPORTED_MODULE_1__util_js__["a" /* default */].compareStrings)) != 0) return cmp;
-    if ((cmp = __WEBPACK_IMPORTED_MODULE_1__util_js__["a" /* default */].compareComparables(this._view, other._view)) != 0) return cmp;
+    if ((cmp = __WEBPACK_IMPORTED_MODULE_1__util_js__["a" /* default */].compareComparables(this._handle, other._handle)) != 0) return cmp;
     // TODO: add type comparison
     // if ((cmp = util.compareStrings(this._type, other._type)) != 0) return cmp;
     if ((cmp = __WEBPACK_IMPORTED_MODULE_1__util_js__["a" /* default */].compareStrings(this._direction, other._direction)) != 0) return cmp;
@@ -16360,7 +16457,7 @@ class HandleConnection {
   get isOutput() {
     return this.direction == 'out' || this.direction == 'inout';
   }
-  get view() { return this._view; } // View?
+  get view() { return this._handle; } // View?
   get particle() { return this._particle; } // never null
 
   set tags(tags) { this._tags = tags; }
@@ -16432,22 +16529,22 @@ class HandleConnection {
   }
 
   _resetViewType() {
-    if (this._view)
-      this._view._type = undefined;
+    if (this._handle)
+      this._handle._type = undefined;
   }
 
-  connectToView(view) {
-    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(view.recipe == this.recipe);
-    this._view = view;
+  connectToView(handle) {
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(handle.recipe == this.recipe);
+    this._handle = handle;
     this._resetViewType();
-    this._view.connections.push(this);
+    this._handle.connections.push(this);
   }
 
   toString(nameMap, options) {
     let result = [];
     result.push(this.name || '*');
     // TODO: better deal with unspecified direction.
-    result.push({'in': '<-', 'out': '->', 'inout': '='}[this.direction] || this.direction || '=');
+    result.push({'in': '<-', 'out': '->', 'inout': '=', 'host': '='}[this.direction] || this.direction || '=');
     if (this.view) {
       result.push(`${(nameMap && nameMap.get(this.view)) || this.view.localName}`);
     }
@@ -16467,13 +16564,13 @@ class HandleConnection {
 
 
 /***/ }),
-/* 67 */
+/* 66 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__util_js__ = __webpack_require__(5);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__type_checker_js__ = __webpack_require__(71);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__type_checker_js__ = __webpack_require__(28);
 // Copyright (c) 2017 Google Inc. All rights reserved.
 // This code may only be used under the BSD style license found at
 // http://polymer.github.io/LICENSE.txt
@@ -16509,7 +16606,7 @@ class Handle {
       view = recipe.findView(this._id);
 
     if (view == undefined) {
-      view = recipe.newView();
+      view = recipe.newHandle();
       view._id = this._id;
       view._tags = [...this._tags];
       view._type = this._type;
@@ -16574,6 +16671,7 @@ class Handle {
   mapToView(view) {
     this._id = view.id;
     this._type = undefined;
+    __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__["a" /* default */])(view.type == undefined || !(view.type.hasVariableReference), `variable references shouldn't be part of handle types`);
     this._mappedType = view.type;
     this._storageKey = view.storageKey;
   }
@@ -16668,13 +16766,13 @@ class Handle {
 
 
 /***/ }),
-/* 68 */
+/* 67 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__slot_connection_js__ = __webpack_require__(69);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__handle_connection_js__ = __webpack_require__(66);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__slot_connection_js__ = __webpack_require__(68);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__handle_connection_js__ = __webpack_require__(65);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__util_js__ = __webpack_require__(5);
 // Copyright (c) 2017 Google Inc. All rights reserved.
 // This code may only be used under the BSD style license found at
@@ -16924,7 +17022,7 @@ class Particle {
 
 
 /***/ }),
-/* 69 */
+/* 68 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -17051,12 +17149,6 @@ class SlotConnection {
       }
       return false;
     }
-    if (this.slotSpec.isRequired && this.targetSlot.sourceConnection == undefined) {
-      if (options) {
-        options.details = 'missing target-slot\'s source-connection of required connection';
-      }
-      return false;
-    }
     return true;
   }
 
@@ -17093,7 +17185,7 @@ class SlotConnection {
 
 
 /***/ }),
-/* 70 */
+/* 69 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -17117,6 +17209,7 @@ class Slot {
     this._id = undefined; // The ID of the slot in the context
     this._localName = undefined; // Local id within the recipe
     this._name = name;
+    this._tags = [];
 
     this._formFactor = undefined;
     this._handleConnections = []; // HandleConnection* (can only be set if source connection is set and particle in slot connections is set)
@@ -17131,6 +17224,8 @@ class Slot {
   set localName(localName) { this._localName = localName; }
   get name() { return this._name; };
   set name(name) { this._name = name; };
+  get tags() { return this._tags; }
+  set tags(tags) { this._tags = tags; }
   get formFactor() { return this._formFactor; }
   set formFactor(formFactor) { this._formFactor = formFactor; }
   get handleConnections() { return this._handleConnections; }
@@ -17219,143 +17314,7 @@ class Slot {
 
 
 /***/ }),
-/* 71 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__type_js__ = __webpack_require__(4);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_assert_web_js__ = __webpack_require__(0);
-// Copyright (c) 2017 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-
-
-
-class TypeChecker {
-
-  // list: [{type, direction, connection}]
-  static processTypeList(list) {
-    if (list.length == 0) {
-      return {type: {type: undefined}, valid: true};
-    }
-    let baseType = list[0];
-    let variableResolutions = [];
-    for (let i = 1; i < list.length; i++) {
-      let result = TypeChecker.compareTypes(baseType, list[i], variableResolutions);
-      baseType = result.type;
-      if (!result.valid) {
-        return {valid: false};
-      }
-    }
-
-    return {type: baseType, valid: true};
-  }
-
-  static _coerceTypes(left, right) {
-    let leftType = left.type;
-    let rightType = right.type;
-
-    while (leftType.isSetView && rightType.isSetView) {
-      leftType = leftType.primitiveType();
-      rightType = rightType.primitiveType();
-    }
-
-    leftType = leftType.resolvedType();
-    rightType = rightType.resolvedType();
-
-    if (leftType.equals(rightType))
-      return left;
-
-    // TODO: direction?
-    let type;
-    if (leftType.isVariable) {
-      leftType.variable.resolution = rightType;
-      type = right;
-    } else if (rightType.isVariable) {
-      rightType.variable.resolution = leftType;
-      type = left;
-    } else {
-      return null;
-    }
-    return type;
-  }
-
-  static isSubclass(subclass, superclass) {
-    let subtype = subclass.type;
-    let supertype = superclass.type;
-    while (subtype.isSetView && supertype.isSetView) {
-      subtype = subtype.primitiveType();
-      supertype = supertype.primitiveType();
-    }
-
-    if (!(subtype.isEntity && supertype.isEntity))
-      return false;
-
-    return subtype.entitySchema.contains(supertype.entitySchema);
-  }
-
-  // left, right: {type, direction, connection}
-  static compareTypes(left, right) {
-    if (left.type.equals(right.type)) {
-      return {type: left, valid: true};
-    }
-
-    let subclass;
-    let superclass;
-    if (TypeChecker.isSubclass(left, right)) {
-      subclass = left;
-      superclass = right;
-    } else if (TypeChecker.isSubclass(right, left)) {
-      subclass = right;
-      superclass = left;
-    }
-
-    // TODO: this arbitrarily chooses type restriction when
-    // super direction is 'in' and sub direction is 'out'. Eventually
-    // both possibilities should be encoded so we can maximise resolution
-    // opportunities
-    if (superclass) {
-      // treat view types as if they were 'inout' connections. Note that this
-      // guarantees that the view's type will be preserved, and that the fact
-      // that the type comes from a view rather than a connection will also
-      // be preserved.
-      let superDirection = superclass.connection ? superclass.connection.direction : 'inout';
-      let subDirection = subclass.connection ? subclass.connection.direction : 'inout';
-      if (superDirection == 'in') {
-        return {type: subclass, valid: true};
-      }
-      if (subDirection == 'out') {
-        return {type: superclass, valid: true};
-      }
-      return {valid: false};
-    }
-
-    let result = TypeChecker._coerceTypes(left, right);
-    if (result == null) {
-      return {valid: false};
-    }
-    // TODO: direction?
-    return {type: result, valid: true};
-  }
-
-  static substitute(type, variable, value) {
-    if (type.equals(variable))
-      return value;
-    if (type.isSetView)
-      return TypeChecker.substitute(type.primitiveType(), variable, value).setViewOf();
-    return type;
-  }
-}
-
-/* harmony default export */ __webpack_exports__["a"] = (TypeChecker);
-
-
-/***/ }),
-/* 72 */
+/* 70 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -17467,7 +17426,7 @@ WalkerBase.Independent = 'independent';
 
 
 /***/ }),
-/* 73 */
+/* 71 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -17557,13 +17516,13 @@ class Relevance {
 
 
 /***/ }),
-/* 74 */
+/* 72 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__tracelib_trace_js__ = __webpack_require__(6);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__relevance_js__ = __webpack_require__(73);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__relevance_js__ = __webpack_require__(71);
 /**
  * @license
  * Copyright (c) 2017 Google Inc. All rights reserved.
@@ -17608,14 +17567,14 @@ class Speculator {
 
 
 /***/ }),
-/* 75 */
+/* 73 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__storage_provider_base_js__ = __webpack_require__(34);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_firebase_web_js__ = __webpack_require__(45);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__storage_provider_base_js__ = __webpack_require__(32);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__platform_firebase_web_js__ = __webpack_require__(46);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__platform_assert_web_js__ = __webpack_require__(0);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__key_base_js__ = __webpack_require__(33);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__key_base_js__ = __webpack_require__(31);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__platform_btoa_web_js__ = __webpack_require__(43);
 // @
 // Copyright (c) 2017 Google Inc. All rights reserved.
@@ -17768,18 +17727,20 @@ class FirebaseVariable extends FirebaseStorageProvider {
     super(type, arcId, id, reference, firebaseKey);
     this.dataSnapshot = undefined;
     this._pendingGets = [];
+    this._version = 0;
     this.reference.on('value', dataSnapshot => {
       this.dataSnapshot = dataSnapshot;
       let data = dataSnapshot.val();
       this._pendingGets.forEach(_get => _get(data));
       this._pendingGets = [];
+      this._version = data.version;
       this._fire('change', {data: data.data, version: data.version});
     });
   }
 
   async cloneFrom(store) {
     let {data, version} = await store._getWithVersion();
-    await realTransaction(this.reference, data => ({data, version}));
+    await this._setWithVersion(data, version);
   }
 
   async get() {
@@ -17795,8 +17756,16 @@ class FirebaseVariable extends FirebaseStorageProvider {
     return this.dataSnapshot.val();
   }
 
+  async _setWithVersion(data, version) {
+    await realTransaction(this.reference, _ => ({data, version}));
+  }
+
   async set(value) {
-    return realTransaction(this.reference, data => ({data: value, version: data.version + 1}));
+    return realTransaction(this.reference, data => {
+      if (JSON.stringify(data.data) == JSON.stringify(value))
+        return data;
+      return {data: value, version: data.version + 1};
+    });
   }
 
   async clear() {
@@ -17842,6 +17811,8 @@ class FirebaseCollection extends FirebaseStorageProvider {
       if (!data.data)
         data.data = {};
       let encId = FirebaseStorageProvider.encodeKey(entity.id);
+      if (data.data[encId] && JSON.stringify(data.data[encId]) == JSON.stringify(entity))
+        return data;
       data.data[encId] = entity;
       data.version += 1;
       return data;
@@ -17850,6 +17821,10 @@ class FirebaseCollection extends FirebaseStorageProvider {
 
   async cloneFrom(store) {
     let {list, version} = await store._toListWithVersion();
+    await this._fromListWithVersion(list, version);
+  }
+
+  async _fromListWithVersion(list, version) {
     return realTransaction(this.reference, data => {
       if (!data.data)
         data.data = {};
@@ -17894,15 +17869,15 @@ class FirebaseCollection extends FirebaseStorageProvider {
 
 
 /***/ }),
-/* 76 */
+/* 74 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0__platform_assert_web_js__ = __webpack_require__(0);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__tracelib_trace_js__ = __webpack_require__(6);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__recipe_util_js__ = __webpack_require__(5);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__storage_provider_base_js__ = __webpack_require__(34);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__key_base_js__ = __webpack_require__(33);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3__storage_provider_base_js__ = __webpack_require__(32);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4__key_base_js__ = __webpack_require__(31);
 // @
 // Copyright (c) 2017 Google Inc. All rights reserved.
 // This code may only be used under the BSD style license found at
@@ -17971,7 +17946,7 @@ class InMemoryStorage {
 
   async connect(id, type, keyString) {
     let key = new InMemoryKey(keyString);
-    if (key.arcId !== this._arcId) {
+    if (key.arcId !== this._arcId.toString()) {
       if (__storageCache[key.arcId] == undefined)
         return null;
       return __storageCache[key.arcId].connect(id, type, keyString);
@@ -18011,6 +17986,10 @@ class InMemoryCollection extends InMemoryStorageProvider {
 
   async cloneFrom(handle) {
     let {list, version} = await handle._toListWithVersion();
+    await this._fromListWithVersion(list, version);
+  }
+
+  async _fromListWithVersion(list, version) {
     this._version = version;
     list.forEach(item => this._items.set(item.id, item));
   }
@@ -18033,7 +18012,10 @@ class InMemoryCollection extends InMemoryStorageProvider {
   async store(entity) {
     let trace = __WEBPACK_IMPORTED_MODULE_1__tracelib_trace_js__["a" /* default */].start({cat: 'view', name: 'InMemoryCollection::store', args: {name: this.name}});
     let entityWasPresent = this._items.has(entity.id);
-
+    if (entityWasPresent && (JSON.stringify(this._items.get(entity.id)) == JSON.stringify(entity))) {
+      trace.end({args: {entity}});    
+      return;
+    }
     this._items.set(entity.id, entity);
     this._version++;
     if (!entityWasPresent)
@@ -18075,6 +18057,10 @@ class InMemoryVariable extends InMemoryStorageProvider {
 
   async cloneFrom(handle) {
     let {data, version} = await handle._getWithVersion();
+    await this._setWithVersion(data, version);
+  }
+
+  async _setWithVersion(data, version) {
     this._stored = data;
     this._version = version;
   }
@@ -18092,6 +18078,8 @@ class InMemoryVariable extends InMemoryStorageProvider {
   }
 
   async set(entity) {
+    if (JSON.stringify(this._stored) == JSON.stringify(entity))
+      return;
     this._stored = entity;
     this._version++;
     this._fire('change', {data: this._stored, version: this._version});
@@ -18108,7 +18096,7 @@ class InMemoryVariable extends InMemoryStorageProvider {
 
 
 /***/ }),
-/* 77 */
+/* 75 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18146,7 +18134,7 @@ class AddUseViews extends __WEBPACK_IMPORTED_MODULE_0__strategizer_strategizer_j
         return recipe => {
           disconnectedConnections.forEach(hc => {
             let clonedHC = recipe.updateToClone({hc}).hc;
-            let view = recipe.newView();
+            let view = recipe.newHandle();
             view.fate = 'use';
             clonedHC.connectToView(view);
           });
@@ -18163,7 +18151,7 @@ class AddUseViews extends __WEBPACK_IMPORTED_MODULE_0__strategizer_strategizer_j
 
 
 /***/ }),
-/* 78 */
+/* 76 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18206,7 +18194,7 @@ class AssignRemoteViews extends __WEBPACK_IMPORTED_MODULE_4__view_mapper_base_js
 
 
 /***/ }),
-/* 79 */
+/* 77 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18254,7 +18242,7 @@ class AssignViewsByTagAndType extends __WEBPACK_IMPORTED_MODULE_4__view_mapper_b
 
 
 /***/ }),
-/* 80 */
+/* 78 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18322,7 +18310,7 @@ class CombinedStrategy extends __WEBPACK_IMPORTED_MODULE_1__strategizer_strategi
 
 
 /***/ }),
-/* 81 */
+/* 79 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18399,7 +18387,7 @@ class ConvertConstraintsToConnections extends __WEBPACK_IMPORTED_MODULE_0__strat
                   recipeHandleConnection = recipeParticle.addConnectionName(connection);
                 let recipeView = recipeMap[view];
                 if (recipeView == null) {
-                  recipeView = recipe.newView();
+                  recipeView = recipe.newHandle();
                   recipeView.fate = 'create';
                   recipeMap[view] = recipeView;
                 }
@@ -18422,7 +18410,7 @@ class ConvertConstraintsToConnections extends __WEBPACK_IMPORTED_MODULE_0__strat
 
 
 /***/ }),
-/* 82 */
+/* 80 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18465,7 +18453,7 @@ class CopyRemoteViews extends __WEBPACK_IMPORTED_MODULE_4__view_mapper_base_js__
 
 
 /***/ }),
-/* 83 */
+/* 81 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18495,7 +18483,7 @@ class CreateDescriptionHandle extends __WEBPACK_IMPORTED_MODULE_1__strategizer_s
           return;
 
         return (recipe, handleConnection) => {
-          let view = recipe.newView();
+          let view = recipe.newHandle();
           view.fate = 'create';
           handleConnection.connectToView(view);
           return 1;
@@ -18511,7 +18499,7 @@ class CreateDescriptionHandle extends __WEBPACK_IMPORTED_MODULE_1__strategizer_s
 
 
 /***/ }),
-/* 84 */
+/* 82 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18570,7 +18558,7 @@ class FallbackFate extends __WEBPACK_IMPORTED_MODULE_1__strategizer_strategizer_
 
 
 /***/ }),
-/* 85 */
+/* 83 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18670,7 +18658,7 @@ class GroupHandleConnections extends __WEBPACK_IMPORTED_MODULE_1__strategizer_st
         return recipe => {
           groupsByType.forEach((groups, type) => {
             groups.forEach(group => {
-              let recipeView = recipe.newView();
+              let recipeView = recipe.newHandle();
               group.forEach(conn => {
                 let cloneConn = recipe.updateToClone({conn}).conn;
                 cloneConn.connectToView(recipeView);
@@ -18697,7 +18685,7 @@ class GroupHandleConnections extends __WEBPACK_IMPORTED_MODULE_1__strategizer_st
 
 
 /***/ }),
-/* 86 */
+/* 84 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18754,7 +18742,7 @@ class InitPopulation extends __WEBPACK_IMPORTED_MODULE_0__strategizer_strategize
 
 
 /***/ }),
-/* 87 */
+/* 85 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18807,7 +18795,7 @@ class InitSearch extends __WEBPACK_IMPORTED_MODULE_0__strategizer_strategizer_js
 
 
 /***/ }),
-/* 88 */
+/* 86 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18877,7 +18865,7 @@ class MapConsumedSlots extends __WEBPACK_IMPORTED_MODULE_0__strategizer_strategi
 
 
 /***/ }),
-/* 89 */
+/* 87 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -18968,7 +18956,7 @@ class MapRemoteSlots extends __WEBPACK_IMPORTED_MODULE_0__strategizer_strategize
 
 
 /***/ }),
-/* 90 */
+/* 88 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -19025,7 +19013,7 @@ class MatchParticleByVerb extends __WEBPACK_IMPORTED_MODULE_0__strategizer_strat
 
 
 /***/ }),
-/* 91 */
+/* 89 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -19077,7 +19065,7 @@ class NameUnnamedConnections extends __WEBPACK_IMPORTED_MODULE_0__strategizer_st
 
 
 /***/ }),
-/* 92 */
+/* 90 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -19181,7 +19169,7 @@ class SearchTokensToParticles extends __WEBPACK_IMPORTED_MODULE_1__strategizer_s
 
 
 /***/ }),
-/* 93 */
+/* 91 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -19226,6 +19214,491 @@ class TupleFields {
   }
 }
 /* harmony export (immutable) */ __webpack_exports__["a"] = TupleFields;
+
+
+/***/ }),
+/* 92 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+
+const nob = () => Object.create(null);
+
+/* harmony default export */ __webpack_exports__["a"] = (Base => class extends Base {
+  constructor() {
+    super();
+    this._pendingProps = nob();
+    this._props = this._getInitialProps() || nob();
+    this._lastProps = nob();
+    this._state = this._getInitialState() || nob();
+    this._lastState = nob();
+  }
+  _getInitialProps() {
+  }
+  _getInitialState() {
+  }
+  _getProperty(name) {
+    return this._pendingProps[name] || this._props[name];
+  }
+  _setProperty(name, value) {
+    // dirty checking opportunity
+    if (this._validator || this._wouldChangeProp(name, value)) {
+      this._pendingProps[name] = value;
+      this._invalidateProps();
+    }
+  }
+  _wouldChangeProp(name, value) {
+    return (typeof value === 'object') || (this._props[name] !== value);
+  }
+  _setProps(props) {
+    // TODO(sjmiles): should this be a replace instead of a merge?
+    Object.assign(this._pendingProps, props);
+    this._invalidateProps();
+  }
+  _invalidateProps() {
+    this._propsInvalid = true;
+    this._invalidate();
+  }
+  _setState(state) {
+    Object.assign(this._state, state);
+    this._invalidate();
+  }
+  _async(fn) {
+    // TODO(sjmiles): SystemJS throws unless `Promise` is `window.Promise`
+    return Promise.resolve().then(fn.bind(this));
+    //return setTimeout(fn.bind(this), 10);
+  }
+  _invalidate() {
+    if (!this._validator) {
+      //this._log('register _async validate');
+      //console.log(this.localName + (this.id ? '#' + this.id : '') + ': invalidated');
+      this._validator = this._async(this._validate);
+    }
+  }
+  _validate() {
+    // try..catch to ensure we nullify `validator` before return
+    try {
+      // TODO(sjmiles): should this be a replace instead of a merge?
+      Object.assign(this._props, this._pendingProps);
+      if (this._propsInvalid) {
+        // TODO(sjmiles): should/can have different timing from rendering?
+        this._willReceiveProps(this._props, this._state, this._lastProps, this._lastState);
+        this._propsInvalid = false;
+      }
+      if (this._shouldUpdate(this._props, this._state, this._lastProps, this._lastState)) {
+        // TODO(sjmiles): consider throttling render to rAF
+        this._ensureMount();
+        this._update(this._props, this._state, this._lastProps, this._lastState);
+      }
+    } catch (x) {
+      console.error(x);
+    }
+    // nullify validator _after_ methods so state changes don't reschedule validation
+    // TODO(sjmiles): can/should there ever be state changes fom inside _update()? In React no, in Xen yes (until I have a good reason not too).
+    this._validator = null;
+    // save the old props and state
+    // TODO(sjmiles): don't need to create these for default _shouldUpdate
+    this._lastProps = Object.assign(nob(), this._props);
+    this._lastState = Object.assign(nob(), this._state);
+    this._didUpdate(this._props, this._state, this._lastProps, this._lastState);
+  }
+  _ensureMount() {
+  }
+  _willReceiveProps(props, state) {
+  }
+  /*
+  _willReceiveState(props, state) {
+  }
+  */
+  _shouldUpdate(props, state, lastProps, lastState) {
+    return true;
+  }
+  _update(props, state, lastProps, lastState) {
+  }
+  _didUpdate(props, state, lastProps, lastState) {
+  }
+});
+
+
+/***/ }),
+/* 93 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/*
+@license
+Copyright (c) 2016 The Polymer Project Authors. All rights reserved.
+This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
+The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
+The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
+Code distributed by Google as part of the polymer project is also
+subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
+*/
+
+// HTMLImports compatibility stuff, delete soonish
+if (typeof document !== 'undefined' && !('currentImport' in document)) {
+  Object.defineProperty(document, 'currentImport', {
+    get() {
+      const script = this.currentScript;
+      let doc = script.ownerDocument || this;
+      // this code for CEv1 compatible HTMLImports polyfill (aka modern)
+      if (window['HTMLImports']) {
+        doc = window.HTMLImports.importForElement(script);
+        doc.URL = script.parentElement.href;
+      }
+      return doc;
+    }
+  });
+}
+
+/* Annotator */
+// tree walker that generates arbitrary data using visitor function `cb`
+// `cb` is called as `cb(node, key, notes)`
+// where
+//   `node` is a visited node.
+//   `key` is a handle which identifies the node in a map generated by `Annotator.locateNodes`.
+class Annotator {
+  constructor(cb) {
+    this.cb = cb;
+  }
+  // For subtree at `node`, produce annotation object `notes`.
+  // the content of `notes` is completely determined by the behavior of the
+  // annotator callback function supplied at the constructor.
+  annotate(node, notes, opts) {
+    this.notes = notes;
+    this.opts = opts || 0;
+    this.key = this.opts.key || 0;
+    notes.locator = this._annotateSubtree(node);
+    //console.log('notes:', notes);
+    return notes;
+  }
+  // walking subtree at `node`
+  _annotateSubtree(node) {
+    let childLocators;
+    for (let i = 0, child = node.firstChild, previous = null, neo; child; i++) {
+      // returns a locator only if a node in the subtree requires one
+      let childLocator = this._annotateNode(child);
+      // only when necessary, maintain a sparse array of locators
+      if (childLocator) {
+        (childLocators = childLocators || {})[i] = childLocator;
+      }
+      // `child` may have been evacipated by visitor
+      neo = previous ? previous.nextSibling : node.firstChild;
+      if (neo === child) {
+        previous = child;
+        child = child.nextSibling;
+      } else {
+        child = neo;
+        i--;
+      }
+    }
+    // is falsey unless there was at least one childLocator
+    return childLocators;
+  }
+  _annotateNode(node) {
+    // visit node
+    let key = this.key++;
+    let shouldLocate = this.cb(node, key, this.notes, this.opts);
+    // recurse
+    //console.group(node.localName||'#text');
+    let locators = this._annotateSubtree(node);
+    //console.groupEnd();
+    if (shouldLocate || locators) {
+      //console.log('capturing', key, '('+(node.localName||'#text')+')');
+      let cl = Object.create(null);
+      cl.key = key;
+      if (locators) {
+        cl.sub = locators;
+      }
+      return cl;
+    }
+  }
+}
+
+const locateNodes = function(root, locator, map) {
+  map = map || [];
+  for (let n in locator) {
+    let loc = locator[n];
+    if (loc) {
+      let node = root.childNodes[n];
+      if (node.nodeType == Node.TEXT_NODE && node.parentElement) {
+        // TODO(mmandlis): remove this line and the (property === 'textContent') clause
+        // in _set() method, in favor of explicit innerHTML binding.
+        map[loc.key] = node.parentElement;
+      } else {
+        map[loc.key] = node;
+      }
+      if (loc.sub) {
+        // recurse
+        locateNodes(node, loc.sub, map);
+      }
+    }
+  }
+  return map;
+};
+
+/* Annotation Producer */
+// must return `true` for any node whose key we wish to track
+const annotatorImpl = function(node, key, notes, opts) {
+  // hook
+  if (opts.annotator && opts.annotator(node, key, notes, opts)) {
+    return true;
+  }
+  // default
+  switch (node.nodeType) {
+    case Node.DOCUMENT_FRAGMENT_NODE:
+      return;
+    case Node.ELEMENT_NODE:
+      return annotateElementNode(node, key, notes);
+    case Node.TEXT_NODE:
+      return annotateTextNode(node, key, notes);
+  }
+};
+
+const annotateTextNode = function(node, key, notes) {
+  if (annotateMustache(node, key, notes, 'textContent', node.textContent)) {
+    node.textContent = '';
+    return true;
+  }
+};
+
+const annotateElementNode = function(node, key, notes) {
+  if (node.hasAttributes()) {
+    let noted = false;
+    for (let a$ = node.attributes, i = a$.length - 1, a; i >= 0 && (a = a$[i]); i--) {
+      if (
+        annotateEvent(node, key, notes, a.name, a.value) ||
+        annotateMustache(node, key, notes, a.name, a.value)
+      ) {
+        node.removeAttribute(a.name);
+        noted = true;
+      }
+    }
+    return noted;
+  }
+};
+
+const annotateMustache = function(node, key, notes, property, mustache) {
+  if (mustache.slice(0, 2) === '{{') {
+    if (property === 'class') {
+      property = 'className';
+    }
+    let value = mustache.slice(2, -2);
+    let override = value.split(':');
+    if (override.length === 2) {
+      property = override[0];
+      value = override[1];
+    }
+    takeNote(notes, key, 'mustaches', property, value);
+    if (value[0] === '$') {
+      takeNote(notes, 'xlate', value, true);
+    }
+    return true;
+  }
+};
+
+const annotateEvent = function(node, key, notes, name, value) {
+  if (name.slice(0, 3) === 'on-') {
+    if (value.slice(0, 2) === '{{') {
+      value = value.slice(2, -2);
+      console.warn(
+        `Xen: event handler for '${name}' expressed as a mustache, which is not supported. Using literal value '${value}' instead.`
+      );
+    }
+    takeNote(notes, key, 'events', name.slice(3), value);
+    return true;
+  }
+};
+
+const takeNote = function(notes, key, group, name, note) {
+  let n$ = notes[key] || (notes[key] = Object.create(null));
+  (n$[group] || (n$[group] = {}))[name] = note;
+  //console.log('[%s]::%s.{{%s}}:', key, group, name, note);
+};
+
+const annotator = new Annotator(annotatorImpl);
+
+const annotate = function(root, key, opts) {
+  return (root._notes ||
+    (root._notes = annotator.annotate(root.content, {/*ids:{}*/}, key, opts))
+  );
+};
+
+/* Annotation Consumer */
+const mapEvents = function(notes, map, mapper) {
+  // add event listeners
+  for (let key in notes) {
+    let node = map[key];
+    let events = notes[key] && notes[key].events;
+    if (node && events) {
+      for (let name in events) {
+        mapper(node, name, events[name]);
+      }
+    }
+  }
+};
+
+const listen = function(controller, node, eventName, handlerName) {
+  node.addEventListener(eventName, function(e) {
+    if (controller[handlerName]) {
+      return controller[handlerName](e, e.detail);
+    }
+  });
+};
+
+const set = function(notes, map, scope, controller) {
+  if (scope) {
+    for (let key in notes) {
+      let node = map[key];
+      if (node) {
+        // everybody gets a scope
+        node.scope = scope;
+        // now get your regularly scheduled bindings
+        let mustaches = notes[key].mustaches;
+        for (let name in mustaches) {
+          let property = mustaches[name];
+          if (property in scope) {
+            _set(node, name, scope[property], controller);
+          }
+        }
+      }
+    }
+  }
+};
+
+const _set = function(node, property, value, controller) {
+  let modifier = property.slice(-1);
+  //console.log('_set: %s, %s, '%s'', node.localName || '(text)', property, value);
+  if (property === 'style%' || property === 'style') {
+    if (typeof value === 'string') {
+      node.style.cssText = value;
+    } else {
+      Object.assign(node.style, value);
+    }
+  } else if (modifier == '$') {
+    let n = property.slice(0, -1);
+    if (typeof value === 'boolean') {
+      setBoolAttribute(node, n, value);
+    } else {
+      node.setAttribute(n, value);
+    }
+  } else if (property === 'textContent') {
+    if (value && (value.$template || value.template)) {
+      _setSubTemplate(node, value, controller);
+    } else {
+      node.textContent = (value || '');
+    }
+  } else if (property === 'unsafe-html') {
+    node.innerHTML = value || '';
+  } else {
+    node[property] = value;
+  }
+};
+
+const setBoolAttribute = function(node, attr, state) {
+  node[
+    (state === undefined ? !node.hasAttribute(attr) : state)
+      ? 'setAttribute'
+      : 'removeAttribute'
+  ](attr, '');
+};
+
+const _setSubTemplate = function(node, value, controller) {
+  // TODO(sjmiles): sub-template iteration ability
+  // specially implemented to support arcs (serialization boundary)
+  // Aim to re-implement as a plugin.
+  let template = value.template;
+  if (!template) {
+    let container = node.getRootNode();
+    template = container.querySelector(`template[${value.$template}]`);
+  } else {
+    template = maybeStringToTemplate(template);
+  }
+  node.textContent = '';
+  if (template && value.models) {
+    for (let m of value.models) {
+      stamp(template).events(controller).set(m).appendTo(node);
+    }
+  }
+};
+
+const stamp = function(template, opts) {
+  template = maybeStringToTemplate(template);
+  // construct (or use memoized) notes
+  let notes = annotate(template, opts);
+  // CRITICAL TIMING ISSUE #1:
+  // importNode can have side-effects, like CustomElement callbacks (before we
+  // can do any work on the imported subtree, before we can mapEvents, e.g.).
+  // we could clone into an inert document (say a new template) and process the nodes
+  // before importing if necessary.
+  let root = document.importNode(template.content, true);
+  // map DOM to keys
+  let map = locateNodes(root, notes.locator);
+  // return dom manager
+  let dom = {
+    root: root,
+    notes: notes,
+    map: map,
+    $(slctr) {
+      return this.root.querySelector(slctr);
+    },
+    set: function(scope) {
+      scope && set(notes, map, scope, this.controller);
+      return this;
+    },
+    events: function(controller) {
+      // TODO(sjmiles): originally `controller` was expected to be an Object with event handler
+      // methods on it (typically a custom-element stamping a template).
+      // In Arcs, we want to attach a generic handler (Function) for any event on this node.
+      // Subtemplate stamping gets involved because they need to reuse whichever controller.
+      // I suspect this can be simplified, but right now I'm just making it go.
+      if (controller && typeof controller !== 'function') {
+        controller = listen.bind(this, controller);
+      }
+      this.controller = controller;
+      if (controller) {
+        mapEvents(notes, map, controller);
+      }
+      return this;
+    },
+    appendTo: function(node) {
+      if (this.root) {
+        // TODO(sjmiles): assumes this.root is a fragment
+        node.appendChild(this.root);
+      } else {
+        console.warn('Xen: cannot appendTo, template stamped no DOM');
+      }
+      // TODO(sjmiles): this.root is no longer a fragment
+      this.root = node;
+      return this;
+    }
+  };
+  return dom;
+};
+
+const maybeStringToTemplate = template => {
+  // TODO(sjmiles): need to memoize this somehow
+  return (typeof template === 'string') ? createTemplate(template) : template;
+};
+
+const createTemplate = innerHTML => {
+  return Object.assign(document.createElement('template'), {innerHTML});
+};
+
+/* harmony default export */ __webpack_exports__["a"] = ({
+  createTemplate,
+  setBoolAttribute,
+  stamp
+});
 
 
 /***/ }),

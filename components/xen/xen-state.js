@@ -8,9 +8,9 @@
  * http://polymer.github.io/PATENTS.txt
  */
 
-let nob = () => Object.create(null);
+const nob = () => Object.create(null);
 
-let StaterMixin = Base => class extends Base {
+export default Base => class extends Base {
   constructor() {
     super();
     this._pendingProps = nob();
@@ -51,8 +51,8 @@ let StaterMixin = Base => class extends Base {
   }
   _async(fn) {
     // TODO(sjmiles): SystemJS throws unless `Promise` is `window.Promise`
-    //return Promise.resolve().then(fn.bind(this));
-    return setTimeout(fn.bind(this), 10);
+    return Promise.resolve().then(fn.bind(this));
+    //return setTimeout(fn.bind(this), 10);
   }
   _invalidate() {
     if (!this._validator) {
@@ -104,5 +104,3 @@ let StaterMixin = Base => class extends Base {
   _didUpdate(props, state, lastProps, lastState) {
   }
 };
-
-export default StaterMixin;
