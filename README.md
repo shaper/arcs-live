@@ -4,15 +4,15 @@
 
 ### Arcs Webapp
 
-https://polymerlabs.github.io/arcs-cdn/dev/apps/web/
+https://polymerlabs.github.io/arcs-live/apps/web/
 
 ### Arcs VR
 
-https://polymerlabs.github.io/arcs-cdn/devv/apps/vr/
+https://polymerlabs.github.io/arcs-live/apps/vr/
 
 ### Arcs ChromeCast
 
-https://polymerlabs.github.io/arcs-cdn/dev/apps/chromecast/
+https://polymerlabs.github.io/arcs-live/apps/chromecast/
 
 ### Arcs Home
 
